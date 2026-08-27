@@ -1,0 +1,9 @@
+[Pendiente de escribir — tarea 2.3]
+
+System prompt del Agente 1 (Clasificador de roles).
+
+Debe instruir al modelo para:
+- Recibir el título y la descripción de un puesto
+- Compararlo contra la lista de roles ya existentes en roles_normalizados
+- Devolver el rol_normalizado_id si encuentra uno equivalente
+- Proponer un rol nuevo (id + nombre legible) solo si ninguno encaja

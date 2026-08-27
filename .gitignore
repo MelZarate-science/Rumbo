@@ -1,0 +1,32 @@
+# Variables de entorno — NUNCA commitear el .env real
+.env
+.env.local
+*.env
+
+# Credenciales
+*-key.json
+*credentials*.json
+service-account*.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Editores
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Build
+dist/
+build/

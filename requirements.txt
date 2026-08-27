@@ -1,0 +1,19 @@
+# --- Google Cloud / Gemini ---
+google-adk
+google-cloud-firestore
+google-cloud-pubsub
+google-cloud-aiplatform
+
+# --- Web ---
+fastapi
+uvicorn[standard]
+
+# --- Utilidades ---
+python-dotenv
+pydantic
+
+# --- Parseo de PDF (Fase 3) ---
+pypdf
+
+# --- Testing ---
+pytest
