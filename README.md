@@ -92,9 +92,10 @@ profile against twenty near-identical "Product Manager" postings.
 | Agents | Deterministic Python (no Vertex AI / ADK in MVP) |
 | Validation | Pydantic v2 |
 
-> **Nota**: `google-adk`, `google-cloud-aiplatform`, `google-cloud-pubsub` están en
-> `requirements.txt` para fases futuras, pero **no se usan en el MVP**.
-> Los embeddings están deshabilitados (ver `services/embeddings.py`).
+> **Nota**: `google-cloud-pubsub` está en `requirements.txt` para el disparo
+> asíncrono (backlog 2.11), diferido por prioridad — hoy el matching corre
+> síncrono. `google-genai` (Gemini) y los embeddings sí se usan de verdad
+> en el MVP — ver `services/gemini_client.py`.
 
 ---
 
@@ -137,6 +138,20 @@ uvicorn main:app --reload --port 8080
 ```
 
 El SDK de Firestore detecta `FIRESTORE_EMULATOR_HOST` automáticamente.
+
+**Índice vectorial requerido** (contra Firestore real, no el emulador): sin
+esto, el retrieval Nivel 1 (`find_nearest()`) falla con
+`Missing vector index configuration`. Se crea una sola vez por proyecto:
+
+```bash
+gcloud firestore indexes composite create \
+  --project=YOUR-PROJECT-ID \
+  --collection-group=roles_normalizados \
+  --query-scope=COLLECTION \
+  --field-config=field-path=embedding,vector-config='{"dimension":"1536","flat":"{}"}'
+```
+
+Tarda unos minutos en pasar a estado `READY` (`gcloud firestore indexes composite list` para chequear).
 
 ### 4. Run tests (no GCP needed)
 
@@ -219,13 +234,23 @@ La lógica vive en `services/invitaciones.py` (`filtrar_campos_visibles`,
 
 ## Deploying to Cloud Run
 
+Copiá `.env` a un archivo YAML (mismos nombres de variable, sin comillas de más)
+y usá `--env-vars-file` — es más confiable que `--set-env-vars` cuando algún
+valor tiene caracteres especiales (ej. `FIRESTORE_DATABASE_ID=(default)`):
+
 ```bash
 gcloud run deploy rumbo-dev \
   --source . \
+  --project=YOUR-PROJECT-ID \
   --region us-central1 \
   --allow-unauthenticated \
-  --set-env-vars GOOGLE_CLOUD_PROJECT=YOUR-PROJECT-ID
+  --env-vars-file=env.yaml
 ```
+
+Variables mínimas que necesita el servicio: `GOOGLE_CLOUD_PROJECT`,
+`FIRESTORE_DATABASE_ID`, `GEMINI_API_KEY`, `GEMINI_MODEL_FLASH`,
+`GEMINI_EMBEDDING_MODEL`, `AUTH_SECRET_KEY`, `UMBRAL_FIT_MINIMO` — ver
+`.env.example`. El frontend queda servido en `<service-url>/app/`.
 
 Automatic deployment via Cloud Build:
 - push to `develop` → deploys to `rumbo-dev`
