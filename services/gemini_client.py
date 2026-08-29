@@ -1,24 +1,32 @@
 """
 Único punto de acceso a Gemini. Mismo principio que `firestore_client.py`:
-nadie construye su propio cliente de `google.genai` en un agente — todos
+nadie construye su propio cliente/agente en un archivo de agents/ — todos
 usan `generar_json` / `generar_embedding_vector` de acá.
 
-Dos formas de autenticarse, mutuamente excluyentes:
-- `GEMINI_API_KEY` seteada -> Gemini Developer API (Google AI Studio, capa
-  gratuita, sin billing de GCP). Esta es la que usa Rumbo: evita depender
-  de crédito de GCP para el corazón agentic del producto.
-- Sin `GEMINI_API_KEY` -> Vertex AI (requiere `GOOGLE_CLOUD_PROJECT` con
-  billing y la API habilitada). Queda como alternativa si en algún momento
-  se necesita cuota mayor a la gratuita.
+Backend: Vertex AI (Google Cloud), no la capa gratuita de Google AI Studio —
+así el consumo corre contra el proyecto de GCP y su crédito, como pide la
+competencia y refleja el diagrama de arquitectura. Requiere:
+- GOOGLE_CLOUD_PROJECT + GOOGLE_CLOUD_LOCATION (o VERTEX_AI_LOCATION)
+- GOOGLE_GENAI_USE_VERTEXAI=True
+- Vertex AI API habilitada y billing en el proyecto
+- Credenciales ADC (`gcloud auth application-default login`) o Secret
+  Manager en Cloud Run.
+
+`generar_json` corre los 3 agentes (clasificador, extractor, auditor) con
+el framework Google ADK (Runner + sesión in-memory) — es el requisito de
+la competencia, no una implementación directa del SDK de Gemini.
+`generar_embedding_vector` NO usa ADK: los embeddings no son razonamiento
+de un agente (ver rumbo-contrato-interfaces.md), son una transformación
+mecánica — alcanza con una llamada directa al cliente de Vertex AI.
 
 Lazy a propósito: importar el módulo no toca la red ni requiere credenciales.
-Variables respetadas: GEMINI_API_KEY, GOOGLE_CLOUD_PROJECT, VERTEX_AI_LOCATION,
-GEMINI_MODEL_FLASH, GEMINI_MODEL_PRO, GEMINI_EMBEDDING_MODEL.
 """
 
+import asyncio
 import logging
 import os
 import time
+import uuid
 
 from pydantic import BaseModel
 
@@ -36,9 +44,7 @@ class GeminiError(RuntimeError):
 def _con_reintentos(fn, *, etiqueta: str):
     """
     Reintenta `fn()` ante `ServerError` (503, sobrecarga transitoria del
-    modelo) con backoff exponencial corto. La capa gratuita de AI Studio
-    sufre picos de demanda con más frecuencia que un plan pago — esto no
-    es hipotético, se observó en uso real corriendo el seed data.
+    modelo) con backoff exponencial corto.
     """
     from google.genai import errors
 
@@ -57,6 +63,7 @@ def _con_reintentos(fn, *, etiqueta: str):
 
 
 def _client():
+    """Cliente crudo de google-genai, usado solo para embeddings (no razonamiento)."""
     global _CLIENT
     if _CLIENT is None:
         from google import genai
@@ -69,7 +76,7 @@ def _client():
             _CLIENT = genai.Client(
                 vertexai=True,
                 project=os.getenv("GOOGLE_CLOUD_PROJECT") or None,
-                location=os.getenv("VERTEX_AI_LOCATION", "us-central1"),
+                location=os.getenv("GOOGLE_CLOUD_LOCATION") or os.getenv("VERTEX_AI_LOCATION", "us-central1"),
             )
             log.info("Cliente Gemini inicializado (Vertex AI)")
     return _CLIENT
@@ -84,36 +91,65 @@ def generar_json(
     temperature: float = 0.0,
 ) -> BaseModel:
     """
-    Llama a Gemini pidiendo salida estructurada según `response_schema`
-    (un modelo Pydantic) y devuelve la instancia ya parseada.
+    Corre uno de los 3 agentes (Google ADK, Runner + sesión in-memory) y
+    devuelve la respuesta ya parseada como el modelo Pydantic de `response_schema`.
 
     `temperature=0.0` por defecto: estas 3 llamadas son de clasificación/
     extracción/auditoría, no de generación creativa — se prioriza
     consistencia sobre variedad.
     """
-    from google.genai import types
-
-    modelo = model or os.getenv("GEMINI_MODEL_FLASH", "gemini-3.5-flash-lite")
+    modelo = model or os.getenv("GEMINI_MODEL_FLASH", "gemini-2.5-flash")
     try:
-        respuesta = _con_reintentos(
-            lambda: _client().models.generate_content(
-                model=modelo,
-                contents=contents,
-                config=types.GenerateContentConfig(
-                    system_instruction=system_instruction,
-                    response_mime_type="application/json",
-                    response_schema=response_schema,
-                    temperature=temperature,
-                ),
-            ),
+        texto = _con_reintentos(
+            lambda: asyncio.run(_ejecutar_agente_adk(modelo, system_instruction, contents, response_schema, temperature)),
             etiqueta=f"generar_json ({modelo})",
         )
     except Exception as exc:  # noqa: BLE001 — re-empacado uniforme
         raise GeminiError(f"generar_json ({modelo}): {exc}") from exc
 
-    if respuesta.parsed is None:
-        raise GeminiError(f"generar_json ({modelo}): la respuesta no pudo parsearse como {response_schema.__name__}")
-    return respuesta.parsed
+    if texto is None:
+        raise GeminiError(f"generar_json ({modelo}): ADK no devolvió una respuesta final")
+    try:
+        return response_schema.model_validate_json(texto)
+    except Exception as exc:  # noqa: BLE001
+        raise GeminiError(f"generar_json ({modelo}): la respuesta no pudo parsearse como {response_schema.__name__}: {exc}") from exc
+
+
+async def _ejecutar_agente_adk(
+    modelo: str,
+    system_instruction: str,
+    contents: str,
+    response_schema: type[BaseModel],
+    temperature: float,
+) -> str | None:
+    from google.adk.agents import LlmAgent
+    from google.adk.runners import InMemoryRunner
+    from google.genai import types
+
+    agent = LlmAgent(
+        name="rumbo_agent",
+        model=modelo,
+        instruction=system_instruction,
+        output_schema=response_schema,
+        generate_content_config=types.GenerateContentConfig(temperature=temperature),
+    )
+    runner = InMemoryRunner(agent=agent, app_name="rumbo")
+    user_id = "rumbo"
+    session_id = uuid.uuid4().hex
+
+    await runner.session_service.create_session(app_name="rumbo", user_id=user_id, session_id=session_id)
+
+    texto_final = None
+    async for event in runner.run_async(
+        user_id=user_id,
+        session_id=session_id,
+        new_message=types.Content(role="user", parts=[types.Part(text=contents)]),
+    ):
+        if event.is_final_response() and event.content and event.content.parts:
+            texto_final = event.content.parts[0].text
+
+    await runner.close()
+    return texto_final
 
 
 def generar_embedding_vector(texto: str, *, model: str | None = None) -> list[float]:

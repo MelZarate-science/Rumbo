@@ -79,11 +79,10 @@ def ejecutar_pipeline_indexado(puesto_id: str) -> None:
     # Requisitos previos para decremento en frecuencias (reindexado)
     requisitos_viejos = puesto.get("requisitos_extraidos") or []
 
-    clasificar_puesto(puesto_id)
+    rol_id = clasificar_puesto(puesto_id)
     req_ids, nuevos = extraer_requisitos(puesto_id)
 
     # Actualizar frecuencias del rol de forma idempotente
-    rol_id = puesto.get("rol_normalizado_id")
     if rol_id:
         from services.normalizacion import actualizar_frecuencias
         actualizar_frecuencias(rol_id, req_ids, requisitos_viejos)

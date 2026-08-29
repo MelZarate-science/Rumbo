@@ -214,3 +214,56 @@ class TestAuditorFit:
 
         assert roadmap["Python"]["especifico_de_esta_empresa"] is False
         assert roadmap["Quasarframework"]["especifico_de_esta_empresa"] is True
+
+
+class TestFrecuencias:
+    """
+    Backlog 2.6: 'los porcentajes de frecuencia se recalculan correctamente'.
+    Cubre el bug real encontrado en sesión: `ejecutar_pipeline_indexado` leía
+    `rol_normalizado_id` de una copia del puesto obtenida ANTES de clasificarlo,
+    así que en la primera indexación de cualquier puesto nunca se llamaba a
+    `actualizar_frecuencias` — todos los `porcentaje_mercado` quedaban en 0
+    para siempre. Ningún test anterior lo detectaba porque ninguno afirmaba
+    el valor numérico de `porcentaje_mercado`, solo su presencia estructural.
+    """
+
+    def test_primer_puesto_del_rol_queda_al_100_por_ciento(self):
+        eid = _crear_empresa_test()
+        pid_puesto = _crear_puesto_test(eid, "Backend Python", "Python FastAPI")
+
+        puesto = obtener("puestos", pid_puesto)
+        rol = obtener("roles_normalizados", puesto["rol_normalizado_id"])
+        frecuencias = {f["requisito_id"]: f for f in rol["requisitos_frecuencia"]}
+
+        assert rol["cantidad_puestos"] == 1
+        assert len(frecuencias) == 3  # Backend, Python, Fastapi
+        for entrada in frecuencias.values():
+            assert entrada["cantidad"] == 1
+            assert entrada["porcentaje"] == 100
+
+    def test_segundo_puesto_del_mismo_rol_recalcula_porcentajes(self):
+        eid = _crear_empresa_test()
+        pid_puesto1 = _crear_puesto_test(eid, "Backend Python", "Python FastAPI")
+        pid_puesto2 = _crear_puesto_test(eid, "Backend Python", "Python Django")
+
+        rol_id = obtener("puestos", pid_puesto1)["rol_normalizado_id"]
+        # Ambos puestos deben haber quedado clasificados en el mismo rol
+        assert obtener("puestos", pid_puesto2)["rol_normalizado_id"] == rol_id
+
+        rol = obtener("roles_normalizados", rol_id)
+        frecuencias = {f["requisito_id"]: f for f in rol["requisitos_frecuencia"]}
+        por_nombre = {}
+        for req_id, entrada in frecuencias.items():
+            req = obtener("requisitos_normalizados", req_id)
+            por_nombre[req["nombre"]] = entrada
+
+        assert rol["cantidad_puestos"] == 2
+        # "Python" y "Backend" aparecen en los dos puestos -> 100%
+        assert por_nombre["Python"]["cantidad"] == 2
+        assert por_nombre["Python"]["porcentaje"] == 100
+        assert por_nombre["Backend"]["porcentaje"] == 100
+        # "Fastapi" solo en el primer puesto, "Django" solo en el segundo -> 50%
+        assert por_nombre["Fastapi"]["cantidad"] == 1
+        assert por_nombre["Fastapi"]["porcentaje"] == 50
+        assert por_nombre["Django"]["cantidad"] == 1
+        assert por_nombre["Django"]["porcentaje"] == 50
