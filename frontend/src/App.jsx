@@ -1,0 +1,26 @@
+import { Routes, Route, Navigate } from 'react-router-dom';
+import Landing from './pages/Landing';
+import Auth from './pages/Auth';
+import PerfilDashboard from './pages/PerfilDashboard';
+import EmpresaDashboard from './pages/EmpresaDashboard';
+import { useAuth } from './context/AuthContext';
+
+function RutaProtegida({ tipo, children }) {
+  const { sesion } = useAuth();
+  if (!sesion) return <Navigate to="/ingresar" replace />;
+  if (sesion.tipo !== tipo) return <Navigate to={sesion.tipo === 'perfil' ? '/perfil' : '/empresa'} replace />;
+  return children;
+}
+
+export default function App() {
+  return (
+    <Routes>
+      <Route path="/" element={<Landing />} />
+      <Route path="/registro" element={<Auth />} />
+      <Route path="/ingresar" element={<Auth />} />
+      <Route path="/perfil" element={<RutaProtegida tipo="perfil"><PerfilDashboard /></RutaProtegida>} />
+      <Route path="/empresa" element={<RutaProtegida tipo="empresa"><EmpresaDashboard /></RutaProtegida>} />
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+  );
+}

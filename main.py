@@ -24,7 +24,7 @@ app.include_router(matches.router)
 
 # Frontend mínimo (backlog 1.6, 2.12, 2.13, 4.1) — montado bajo /app para no
 # pisar los endpoints de la API, que viven en la raíz (/perfiles, /empresas, etc).
-app.mount("/app", StaticFiles(directory="frontend", html=True), name="frontend")
+app.mount("/app", StaticFiles(directory="frontend/dist", html=True), name="frontend")
 
 
 @app.get("/health")
