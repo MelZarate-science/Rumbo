@@ -14,10 +14,10 @@ Uso:
 import sys
 from datetime import UTC, datetime
 
-from models.empresa import Empresa
-from models.perfil import CvData, ExperienciaItem, FormacionItem, Perfil, ProyectoItem
-from models.puesto import Puesto
-from services.firestore_client import crear, FirestoreError
+from backend.models.empresa import Empresa
+from backend.models.perfil import CvData, ExperienciaItem, FormacionItem, Perfil, ProyectoItem
+from backend.models.puesto import Puesto
+from backend.services.firestore_client import FirestoreError, crear
 
 
 def _perfil_ana() -> Perfil:
@@ -386,7 +386,7 @@ def main():
                 pid = crear("puestos", puesto.model_dump(mode="python", exclude_none=True))
                 print(f"  ✓ Puesto: {puesto.titulo} (id={pid})")
                 # Indexar (clasificar + extraer requisitos)
-                from pipeline.matching_pipeline import ejecutar_pipeline_indexado
+                from backend.pipeline.matching_pipeline import ejecutar_pipeline_indexado
                 ejecutar_pipeline_indexado(pid)
                 print(f"    → Indexado completado")
             except FirestoreError as e:
@@ -395,7 +395,7 @@ def main():
 
     # 3) Disparar matching para cada perfil
     print("\n--- Ejecutando matching para perfiles ---")
-    from pipeline.matching_pipeline import ejecutar_pipeline_matching
+    from backend.pipeline.matching_pipeline import ejecutar_pipeline_matching
     for pid in perfil_ids:
         try:
             match_ids = ejecutar_pipeline_matching(pid)

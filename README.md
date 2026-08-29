@@ -40,8 +40,8 @@ sees the other until there is explicit consent.
 
 **Scope per `docs/backend.md`**: Pub/Sub, Cloud Run, Vertex AI, Gemini, PDF generation,
 and Harvard CV are **deferred** (out of MVP critical path). The three agents run
-deterministically (no model reasoning) — see `services/normalizacion.py` and
-`agents/*.py`.
+deterministically (no model reasoning) — see `backend/services/normalizacion.py` and
+`backend/agents/*.py`.
 
 ---
 
@@ -86,7 +86,7 @@ profile against twenty near-identical "Product Manager" postings.
 
 > **Nota**: `google-adk`, `google-cloud-aiplatform`, `google-cloud-pubsub` están en
 > `requirements.txt` para fases futuras, pero **no se usan en el MVP**.
-> Los embeddings están deshabilitados (ver `services/embeddings.py`).
+> Los embeddings están deshabilitados (ver `backend/services/embeddings.py`).
 
 ---
 
@@ -125,7 +125,7 @@ gcloud emulators firestore start --host-port=localhost:8080
 
 # Terminal 2: exportar variable y correr la app
 export FIRESTORE_EMULATOR_HOST=localhost:8080
-uvicorn main:app --reload --port 8080
+uvicorn backend.main:app --reload --port 8080
 ```
 
 El SDK de Firestore detecta `FIRESTORE_EMULATOR_HOST` automáticamente.
@@ -133,10 +133,10 @@ El SDK de Firestore detecta `FIRESTORE_EMULATOR_HOST` automáticamente.
 ### 4. Run tests (no GCP needed)
 
 ```bash
-python -m pytest tests/ -v
+python -m pytest backend/tests/ -v
 ```
 
-Todos los tests usan `tests/fakes.py` (FakeFirestore en memoria), así que
+Todos los tests usan `backend/tests/fakes.py` (FakeFirestore en memoria), así que
 **no requieren credenciales ni emulador**.
 
 ### 5. Seed sample data (requiere emulador o GCP real)
@@ -158,6 +158,9 @@ curl http://localhost:8080/health
 ---
 
 ## API Endpoints (MVP)
+
+La implementación activa del backend vive en `backend/`. `main.py` y `routes/`
+quedaron como wrappers de compatibilidad para no romper imports viejos.
 
 ### Perfiles
 | Method | Path | Descripción |

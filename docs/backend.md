@@ -41,15 +41,17 @@ Si una parte no aporta a ese flujo, no entra en el MVP.
 
 ## 3. Estado actual del proyecto
 
-En el repo ya existe la estructura base:
+En el repo la implementación activa del backend vive en `backend/`:
 
-- `models/` con `Perfil`, `Empresa`, `Puesto`, `Match`.
-- `routes/` con los recursos principales.
-- `services/` con las capas separadas por responsabilidad.
-- `pipeline/` con la secuencia de matching.
-- `docs/` con el esquema, contrato y backlog.
+- `backend/api/routes/` para HTTP.
+- `backend/models/` para modelos internos.
+- `backend/schemas/` para request/response.
+- `backend/services/` para lógica y Firestore.
+- `backend/pipeline/` para orquestación.
+- `backend/agents/` para clasificación, extracción y auditoría.
 
-Pero todavía faltan implementaciones clave. Hoy varios módulos están en `NotImplementedError`, así que el backend no puede operar de punta a punta todavía.
+`frontend/` queda separado en la raíz. `main.py` y `routes/` se mantienen sólo
+como compatibilidad para imports viejos.
 
 ## 4. Hoja de ruta del MVP
 
@@ -165,4 +167,3 @@ El backend está listo para el MVP cuando:
 ## 9. Próximo paso recomendado
 
 Implementar primero la capa `firestore_client.py` y luego corregir `models/perfil.py`, porque esas dos piezas destraban todo lo demás.
-
