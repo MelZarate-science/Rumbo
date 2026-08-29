@@ -19,3 +19,9 @@ class PuestoUpdate(BaseModel):
     titulo: str | None = None
     descripcion: str | None = None
     activo: bool | None = None
+
+
+class PuestoCreate(BaseModel):
+    """Schema de entrada para crear puesto."""
+    titulo: str
+    descripcion: str

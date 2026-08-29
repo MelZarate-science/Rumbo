@@ -25,13 +25,23 @@ def ejecutar_pipeline_matching(perfil_id: str) -> list[str]:
     (Pub/Sub está diferido — ver backend.md Fase 1).
 
     Returns:
-        Lista de `match_id` creados.
+        Lista de `match_id` creados (nuevos; no duplica perfil_id + puesto_id).
     """
     roles_ids = buscar_roles_afines(perfil_id)          # Nivel 1 — token-overlap
     puestos_ids = buscar_puestos_de_roles(roles_ids)    # Nivel 2 — filtro simple
 
+    # Verificar matches existentes para no duplicar
+    matches_existentes = set()
+    from services.firestore_client import listar
+    for m in listar("matches", {"perfil_id": perfil_id}):
+        if m.get("puesto_id"):
+            matches_existentes.add(m["puesto_id"])
+
     matches_creados = []
     for puesto_id in puestos_ids:
+        if puesto_id in matches_existentes:
+            continue  # ya existe match para este perfil+puesto
+
         resultado = calcular_score_y_roadmap(perfil_id, puesto_id)
 
         # Resolver empresa_id desde el puesto para el modelo Match
@@ -54,13 +64,28 @@ def ejecutar_pipeline_matching(perfil_id: str) -> list[str]:
 
 def ejecutar_pipeline_indexado(puesto_id: str) -> None:
     """
-    Corre al cargarse un puesto nuevo: lo clasifica en un rol y extrae sus
-    requisitos, dejándolo disponible para el matching.
+    Corre al cargarse un puesto nuevo o al actualizarlo: lo clasifica en un rol
+    y extrae sus requisitos, actualizando las frecuencias del rol de forma idempotente.
 
     Backlog: tareas 2.3, 2.5, 2.6
     """
+    from services.firestore_client import obtener
+    puesto = obtener("puestos", puesto_id)
+    if puesto is None:
+        raise ValueError(f"puesto {puesto_id} no encontrado")
+
+    # Requisitos previos para decremento en frecuencias (reindexado)
+    requisitos_viejos = puesto.get("requisitos_extraidos") or []
+
     clasificar_puesto(puesto_id)
     req_ids, nuevos = extraer_requisitos(puesto_id)
+
+    # Actualizar frecuencias del rol de forma idempotente
+    rol_id = puesto.get("rol_normalizado_id")
+    if rol_id:
+        from services.normalizacion import actualizar_frecuencias
+        actualizar_frecuencias(rol_id, req_ids, requisitos_viejos)
+
     # Guardar cuáles requisitos son nuevos para que el auditor los marque como específicos
     if nuevos:
         from services.firestore_client import actualizar

@@ -9,7 +9,7 @@ Backlog: tareas 2.5 y 2.6
 """
 
 from services.firestore_client import crear, listar, obtener
-from services.normalizacion import actualizar_frecuencias, normalizar_texto, texto_contiene, tokens as norm_tokens
+from services.normalizacion import normalizar_texto, texto_contiene, tokens as norm_tokens
 
 
 def extraer_requisitos(puesto_id: str) -> tuple[list[str], set[str]]:
@@ -27,44 +27,42 @@ def extraer_requisitos(puesto_id: str) -> tuple[list[str], set[str]]:
         raise ValueError(f"puesto {puesto_id} no encontrado")
 
     texto = " ".join(filter(None, [puesto.get("titulo"), puesto.get("descripcion")]))
-    texto_norm = normalizar_texto(texto)
 
     # 1) Catálogo existente: buscamos cuáles de los requisitos normalizados
     #    aparecen (por tokens) en el texto del puesto
     catalogo = listar("requisitos_normalizados")
     requisitos_encontrados = []
+    tokens_cubiertos = set()
     for req in catalogo:
         nombre = req.get("nombre", "")
         if texto_contiene(texto, nombre):
             requisitos_encontrados.append(req["_document_id"])
+            tokens_cubiertos.update(norm_tokens(nombre))
 
-    # 2) Fallback MVP: si no hubo coincidencias, crear requisitos a partir
-    #    de tokens "habilidad" del texto (palabras >= 3 chars, no stopwords)
+    # 2) Siempre buscar requisitos adicionales en tokens del texto
+    #    que no estén cubiertos por el catálogo existente
     nuevos_requisitos = set()
-    if not requisitos_encontrados:
-        tokens_texto = norm_tokens(texto)
-        # Tomamos hasta 8 tokens únicos como requisitos
-        vistos = set()
-        for t in tokens_texto:
-            if t in vistos:
-                continue
-            vistos.add(t)
-            req_id = crear("requisitos_normalizados", {
-                "nombre": t.capitalize(),
-                "tipo": "herramienta",
-            })
-            requisitos_encontrados.append(req_id)
-            nuevos_requisitos.add(req_id)
-            if len(requisitos_encontrados) >= 8:
-                break
+    tokens_texto = norm_tokens(texto)
+    vistos = set()
+    for t in tokens_texto:
+        if t in vistos or t in tokens_cubiertos:
+            continue
+        vistos.add(t)
+        req_id = crear("requisitos_normalizados", {
+            "nombre": t.capitalize(),
+            "tipo": "herramienta",
+        })
+        requisitos_encontrados.append(req_id)
+        nuevos_requisitos.add(req_id)
+        if len(requisitos_encontrados) >= 12:  # límite mayor para combinar catálogo + nuevos
+            break
 
     # 3) Guardar en el puesto
     from services.firestore_client import actualizar
     actualizar("puestos", puesto_id, {"requisitos_extraidos": requisitos_encontrados})
 
-    # 4) Actualizar frecuencias del rol
-    rol_id = puesto.get("rol_normalizado_id")
-    if rol_id:
-        actualizar_frecuencias(rol_id, requisitos_encontrados)
+    # 4) Actualizar frecuencias del rol (se hace en pipeline/indexado para idempotencia)
+    #    No llamamos actualizar_frecuencias aquí; lo hace ejecutar_pipeline_indexado
+    #    con los requisitos viejos y nuevos para idempotencia.
 
     return requisitos_encontrados, nuevos_requisitos

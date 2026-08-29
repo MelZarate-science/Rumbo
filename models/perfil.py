@@ -92,6 +92,35 @@ class Perfil(BaseModel):
         return v
 
 
+class PerfilCreate(BaseModel):
+    """Schema de entrada para crear perfil (sin campos de servidor)."""
+    nombre: str
+    apellido: str
+    email: str
+    telefono: str | None = None
+    cv_texto_original: str | None = None
+    cv_data: CvData = Field(default_factory=CvData)
+    busqueda_interes: str | None = None
+
+    @field_validator("email")
+    @classmethod
+    def _email_valido(cls, v: str) -> str:
+        v = v.strip()
+        if not _EMAIL_RE.match(v):
+            raise ValueError("email inválido")
+        return v.lower()
+
+    @field_validator("telefono")
+    @classmethod
+    def _telefono_valido(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip()
+        if not _TELEFONO_RE.match(v):
+            raise ValueError("telefono inválido")
+        return v
+
+
 class PerfilUpdate(BaseModel):
     """Modelo para actualización parcial de perfil (PUT datos personales)."""
     nombre: str | None = None

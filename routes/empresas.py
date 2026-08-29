@@ -12,8 +12,8 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException, status
 
-from models.empresa import Empresa
-from models.puesto import Puesto
+from models.empresa import Empresa, EmpresaCreate, EmpresaUpdate
+from models.puesto import Puesto, PuestoCreate
 from pipeline.matching_pipeline import ejecutar_pipeline_indexado
 from services.firestore_client import crear, listar, obtener
 from services.invitaciones import filtrar_campos_visibles
@@ -29,9 +29,11 @@ def _error(status_code: int, mensaje: str, codigo: str):
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-def crear_empresa(empresa: Empresa):
+def crear_empresa(empresa: EmpresaCreate):
     """Crea una empresa. El ID lo genera Firestore."""
     datos = empresa.model_dump(mode="python", exclude_none=True)
+    datos["created_at"] = datetime.now(UTC)
+    datos["activa"] = True
     empresa_id = crear("empresas", datos)
     datos["empresa_id"] = empresa_id
     return {"empresa_id": empresa_id, **datos}
@@ -48,15 +50,13 @@ def obtener_empresa(empresa_id: str):
 
 
 @router.put("/{empresa_id}")
-def actualizar_empresa(empresa_id: str, cambios: Empresa):
+def actualizar_empresa(empresa_id: str, cambios: EmpresaUpdate):
     """Actualiza datos de la empresa."""
     data = obtener("empresas", empresa_id)
     if data is None:
         _error(status.HTTP_404_NOT_FOUND, "Empresa no encontrada", "EMPRESA_NO_ENCONTRADA")
 
-    updates = cambios.model_dump(
-        mode="python", exclude={"empresa_id", "created_at"}, exclude_none=True
-    )
+    updates = cambios.model_dump(mode="python", exclude_none=True)
     if not updates:
         _error(status.HTTP_400_BAD_REQUEST, "No hay cambios válidos", "SIN_CAMBIOS")
     updates["updated_at"] = datetime.now(UTC)
@@ -68,7 +68,7 @@ def actualizar_empresa(empresa_id: str, cambios: Empresa):
 
 
 @router.post("/{empresa_id}/puestos", status_code=status.HTTP_201_CREATED)
-def crear_puesto(empresa_id: str, puesto: Puesto):
+def crear_puesto(empresa_id: str, puesto: PuestoCreate):
     """
     Crea un puesto bajo la empresa y dispara el indexado (clasificación + extracción).
     """
@@ -78,6 +78,8 @@ def crear_puesto(empresa_id: str, puesto: Puesto):
 
     datos = puesto.model_dump(mode="python", exclude_none=True)
     datos["empresa_id"] = empresa_id
+    datos["created_at"] = datetime.now(UTC)
+    datos["activo"] = True
     puesto_id = crear("puestos", datos)
 
     # Disparar indexado síncrono

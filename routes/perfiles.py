@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException, status
 
-from models.perfil import CvData, Perfil, PerfilUpdate
+from models.perfil import CvData, Perfil, PerfilCreate, PerfilUpdate
 from pipeline.matching_pipeline import ejecutar_pipeline_matching
 from services.firestore_client import crear, listar, obtener
 
@@ -30,9 +30,10 @@ def _error(status_code: int, mensaje: str, codigo: str):
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-def crear_perfil(perfil: Perfil):
+def crear_perfil(perfil: PerfilCreate):
     """Crea un perfil. El ID lo genera Firestore; devuelve el perfil con ID."""
     datos = perfil.model_dump(mode="python", exclude_none=True)
+    datos["created_at"] = datetime.now(UTC)
     perfil_id = crear("perfiles", datos)
     datos["perfil_id"] = perfil_id
     return {"perfil_id": perfil_id, **datos}
