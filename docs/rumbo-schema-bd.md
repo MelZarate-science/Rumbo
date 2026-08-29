@@ -12,6 +12,7 @@
 | `nombre_empresa` | string | Nombre público de la empresa |
 | `contexto` | string (texto libre) | El "system prompt" de la empresa: quién es, cultura, ambiente, a quién busca en general |
 | `email_registro` | string | Email de contacto usado en el registro (sin validación de dominio en el MVP) |
+| `password_hash` | string | `salt$hash` (PBKDF2-HMAC-SHA256) — nunca se serializa hacia ningún consumidor de la API (backlog 1.1) |
 | `created_at` | timestamp | Fecha de registro |
 | `activa` | boolean | Permite desactivar sin borrar (soft delete) |
 | `updated_at` | timestamp (opcional) | Última vez que se editó la empresa |
@@ -78,6 +79,7 @@ Cada habilidad/herramienta/requisito es una entidad única, sin importar en cuá
 | `apellido` | string | Apellido completo | ❌ no |
 | `email` | string | Contacto | ❌ no |
 | `telefono` | string (opcional) | Contacto | ❌ no |
+| `password_hash` | string | `salt$hash` (PBKDF2-HMAC-SHA256) — nunca se serializa hacia ningún consumidor de la API (backlog 1.1) | ❌ no |
 | `cv_texto_original` | string | Texto extraído del PDF subido, si aplica | ❌ no (uso interno) |
 | `cv_data` | map | Estructura parseada — ver detalle completo en la sección siguiente | ✅ sí (contenido, no metadatos de contacto) |
 | `cv_generado_harvard` | string (opcional) | CV generado en formato Harvard, si el usuario lo pidió | ❌ no (es para el propio usuario) |

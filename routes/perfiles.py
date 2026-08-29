@@ -1,10 +1,10 @@
 """
 Endpoints de perfiles. Ver `rumbo-contrato-interfaces.md`, sección 3.
 
-POST   /perfiles                        -> crea perfil (1.2)
+POST   /perfiles                        -> crea perfil (1.2) + devuelve token de sesión (1.1)
 GET    /perfiles/{perfil_id}            -> devuelve perfil (1.2)
-PUT    /perfiles/{perfil_id}            -> edita datos personales (1.2)
-PUT    /perfiles/{perfil_id}/cv         -> carga cv_data + dispara matching (1.3)
+PUT    /perfiles/{perfil_id}            -> edita datos personales (1.2), requiere sesión propia
+PUT    /perfiles/{perfil_id}/cv         -> carga cv_data + dispara matching (1.3), requiere sesión propia
 POST   /perfiles/{perfil_id}/cv/pdf     -> parsea PDF a cv_data (3.1) [Fase 3]
 POST   /perfiles/{perfil_id}/cv/generar -> genera CV Harvard (3.2) [Fase 3]
 GET    /perfiles/{perfil_id}/cv/descargar -> PDF descargable (3.4) [Fase 3]
@@ -13,10 +13,12 @@ GET    /perfiles/{perfil_id}/matches    -> puestos afines, SIN nombre_empresa
 """
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from models.perfil import CvData, Perfil, PerfilCreate, PerfilUpdate
 from pipeline.matching_pipeline import ejecutar_pipeline_matching
+from routes.auth import usuario_actual
+from services.auth import crear_token, hashear_password
 from services.firestore_client import crear, listar, obtener
 
 router = APIRouter(prefix="/perfiles", tags=["perfiles"])
@@ -29,14 +31,26 @@ def _error(status_code: int, mensaje: str, codigo: str):
     )
 
 
+def _sin_internos(data: dict) -> dict:
+    return {k: v for k, v in data.items() if k not in Perfil.CAMPOS_INTERNOS}
+
+
+def _requiere_dueno(perfil_id: str, sesion: dict) -> None:
+    if sesion["tipo"] != "perfil" or sesion["sub"] != perfil_id:
+        _error(status.HTTP_403_FORBIDDEN, "No podés modificar un perfil que no es el tuyo", "NO_AUTORIZADO")
+
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 def crear_perfil(perfil: PerfilCreate):
-    """Crea un perfil. El ID lo genera Firestore; devuelve el perfil con ID."""
+    """Crea un perfil y devuelve un token de sesión (login automático al registrarse)."""
     datos = perfil.model_dump(mode="python", exclude_none=True)
+    datos["password_hash"] = hashear_password(datos.pop("password"))
     datos["created_at"] = datetime.now(UTC)
     perfil_id = crear("perfiles", datos)
-    datos["perfil_id"] = perfil_id
-    return {"perfil_id": perfil_id, **datos}
+    respuesta = _sin_internos(datos)
+    respuesta["perfil_id"] = perfil_id
+    respuesta["token"] = crear_token(perfil_id, "perfil")
+    return {"perfil_id": perfil_id, **respuesta}
 
 
 @router.get("/{perfil_id}")
@@ -46,12 +60,13 @@ def obtener_perfil(perfil_id: str):
     if data is None:
         _error(status.HTTP_404_NOT_FOUND, "Perfil no encontrado", "PERFIL_NO_ENCONTRADO")
     data["perfil_id"] = perfil_id
-    return data
+    return _sin_internos(data)
 
 
 @router.put("/{perfil_id}")
-def actualizar_perfil(perfil_id: str, cambios: PerfilUpdate):
-    """Actualiza datos personales (no cv_data; usar PUT /cv para eso)."""
+def actualizar_perfil(perfil_id: str, cambios: PerfilUpdate, sesion: dict = Depends(usuario_actual)):
+    """Actualiza datos personales (no cv_data; usar PUT /cv para eso). Requiere sesión propia."""
+    _requiere_dueno(perfil_id, sesion)
     data = obtener("perfiles", perfil_id)
     if data is None:
         _error(status.HTTP_404_NOT_FOUND, "Perfil no encontrado", "PERFIL_NO_ENCONTRADO")
@@ -64,17 +79,18 @@ def actualizar_perfil(perfil_id: str, cambios: PerfilUpdate):
     actualizar("perfiles", perfil_id, updates)
     data = obtener("perfiles", perfil_id)
     data["perfil_id"] = perfil_id
-    return data
+    return _sin_internos(data)
 
 
 @router.put("/{perfil_id}/cv")
-def actualizar_cv(perfil_id: str, cv: CvData):
+def actualizar_cv(perfil_id: str, cv: CvData, sesion: dict = Depends(usuario_actual)):
     """
-    Carga/actualiza cv_data y dispara el pipeline de matching.
+    Carga/actualiza cv_data y dispara el pipeline de matching. Requiere sesión propia.
 
     Returns:
         perfil actualizado + lista de match_id creados.
     """
+    _requiere_dueno(perfil_id, sesion)
     data = obtener("perfiles", perfil_id)
     if data is None:
         _error(status.HTTP_404_NOT_FOUND, "Perfil no encontrado", "PERFIL_NO_ENCONTRADO")
@@ -89,7 +105,7 @@ def actualizar_cv(perfil_id: str, cv: CvData):
 
     data = obtener("perfiles", perfil_id)
     data["perfil_id"] = perfil_id
-    return {"perfil": data, "matches_creados": match_ids}
+    return {"perfil": _sin_internos(data), "matches_creados": match_ids}
 
 
 @router.get("/{perfil_id}/matches")

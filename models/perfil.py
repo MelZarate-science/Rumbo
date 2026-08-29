@@ -63,6 +63,7 @@ class Perfil(BaseModel):
     apellido: str                     # NO visible antes del opt-in
     email: str                        # NO visible antes del opt-in
     telefono: str | None = None       # NO visible antes del opt-in
+    password_hash: str | None = None  # nunca se serializa hacia afuera (ver routes/perfiles.py)
     cv_texto_original: str | None = None
     cv_data: CvData = Field(default_factory=CvData)  # visible a la empresa antes del opt-in
     cv_generado_harvard: str | None = None
@@ -72,6 +73,9 @@ class Perfil(BaseModel):
 
     #: Campos que sólo se exponen a la empresa cuando el match está confirmado.
     CAMPOS_PRIVADOS: ClassVar[frozenset[str]] = frozenset({"apellido", "email", "telefono"})
+
+    #: Nunca se serializa hacia ningún consumidor de la API, ni siquiera al dueño.
+    CAMPOS_INTERNOS: ClassVar[frozenset[str]] = frozenset({"password_hash"})
 
     @field_validator("email")
     @classmethod
@@ -97,6 +101,7 @@ class PerfilCreate(BaseModel):
     nombre: str
     apellido: str
     email: str
+    password: str
     telefono: str | None = None
     cv_texto_original: str | None = None
     cv_data: CvData = Field(default_factory=CvData)
@@ -118,6 +123,13 @@ class PerfilCreate(BaseModel):
         v = v.strip()
         if not _TELEFONO_RE.match(v):
             raise ValueError("telefono inválido")
+        return v
+
+    @field_validator("password")
+    @classmethod
+    def _password_valida(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError("la contraseña debe tener al menos 8 caracteres")
         return v
 
 

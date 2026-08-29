@@ -7,10 +7,11 @@ GET /puestos/{puesto_id} -> devuelve un puesto individual
 """
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from models.puesto import Puesto, PuestoUpdate
 from pipeline.matching_pipeline import ejecutar_pipeline_indexado
+from routes.auth import usuario_actual
 from services.firestore_client import obtener, actualizar
 
 router = APIRouter(prefix="/puestos", tags=["puestos"])
@@ -34,14 +35,17 @@ def obtener_puesto(puesto_id: str):
 
 
 @router.put("/{puesto_id}")
-def actualizar_puesto(puesto_id: str, cambios: PuestoUpdate):
+def actualizar_puesto(puesto_id: str, cambios: PuestoUpdate, sesion: dict = Depends(usuario_actual)):
     """
     Actualiza un puesto. Si cambia `descripcion` o `titulo`, re-ejecuta el
     pipeline de indexado (clasificación + extracción de requisitos).
+    Requiere sesión de la empresa dueña del puesto.
     """
     data = obtener("puestos", puesto_id)
     if data is None:
         _error(status.HTTP_404_NOT_FOUND, "Puesto no encontrado", "PUESTO_NO_ENCONTRADO")
+    if sesion["tipo"] != "empresa" or sesion["sub"] != data.get("empresa_id"):
+        _error(status.HTTP_403_FORBIDDEN, "No podés modificar un puesto que no es tuyo", "NO_AUTORIZADO")
 
     updates = cambios.model_dump(mode="python", exclude_none=True)
     if not updates:

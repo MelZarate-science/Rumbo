@@ -4,22 +4,26 @@ Tests de endpoints de matches: invitación y respuesta con visibilidad escalonad
 
 import pytest
 
+from tests.conftest import auth_headers
+
 
 def _setup_match(client, sample_perfil, sample_empresa, sample_puesto):
-    """Helper: crea perfil, empresa, puesto, dispara matching, devuelve match_id."""
+    """Helper: crea perfil, empresa, puesto, dispara matching, devuelve (match_id, tokens)."""
     r = client.post("/perfiles", json=sample_perfil)
     pid = r.json()["perfil_id"]
+    token_perfil = r.json()["token"]
 
     r = client.post("/empresas", json=sample_empresa)
     eid = r.json()["empresa_id"]
+    token_empresa = r.json()["token"]
 
-    r = client.post(f"/empresas/{eid}/puestos", json=sample_puesto)
+    r = client.post(f"/empresas/{eid}/puestos", json=sample_puesto, headers=auth_headers(token_empresa))
 
     cv = {"experiencia": [], "formacion": [], "habilidades": ["Python", "FastAPI"], "proyectos": []}
-    r = client.put(f"/perfiles/{pid}/cv", json=cv)
+    r = client.put(f"/perfiles/{pid}/cv", json=cv, headers=auth_headers(token_perfil))
     matches = r.json()["matches_creados"]
     assert matches
-    return matches[0], pid, eid
+    return matches[0], token_perfil, token_empresa
 
 
 def test_obtener_match_visibilidad_empresa(client, sample_perfil, sample_empresa, sample_puesto):
@@ -48,57 +52,64 @@ def test_obtener_match_visibilidad_perfil_oculta_empresa_pendiente(client, sampl
 
 
 def test_invitar_match_ok(client, sample_perfil, sample_empresa, sample_puesto):
-    match_id, _, _ = _setup_match(client, sample_perfil, sample_empresa, sample_puesto)
+    match_id, _, token_empresa = _setup_match(client, sample_perfil, sample_empresa, sample_puesto)
 
-    r = client.post(f"/matches/{match_id}/invitar")
+    r = client.post(f"/matches/{match_id}/invitar", headers=auth_headers(token_empresa))
     assert r.status_code == 200
     assert r.json()["estado"] == "notificado"
 
 
-def test_invitar_match_no_pendiente_falla(client, sample_perfil, sample_empresa, sample_puesto):
+def test_invitar_match_sin_token_falla(client, sample_perfil, sample_empresa, sample_puesto):
     match_id, _, _ = _setup_match(client, sample_perfil, sample_empresa, sample_puesto)
 
-    # Invitar una vez
-    client.post(f"/matches/{match_id}/invitar")
-    # Segunda vez debe fallar
     r = client.post(f"/matches/{match_id}/invitar")
+    assert r.status_code == 401
+
+
+def test_invitar_match_no_pendiente_falla(client, sample_perfil, sample_empresa, sample_puesto):
+    match_id, _, token_empresa = _setup_match(client, sample_perfil, sample_empresa, sample_puesto)
+
+    # Invitar una vez
+    client.post(f"/matches/{match_id}/invitar", headers=auth_headers(token_empresa))
+    # Segunda vez debe fallar
+    r = client.post(f"/matches/{match_id}/invitar", headers=auth_headers(token_empresa))
     assert r.status_code == 400
     assert r.json()["codigo"] == "TRANSICION_INVALIDA"
 
 
 def test_responder_match_aceptar_confirma(client, sample_perfil, sample_empresa, sample_puesto):
-    match_id, _, _ = _setup_match(client, sample_perfil, sample_empresa, sample_puesto)
+    match_id, token_perfil, token_empresa = _setup_match(client, sample_perfil, sample_empresa, sample_puesto)
 
     # Invitar primero
-    client.post(f"/matches/{match_id}/invitar")
+    client.post(f"/matches/{match_id}/invitar", headers=auth_headers(token_empresa))
     # Responder aceptando
-    r = client.post(f"/matches/{match_id}/responder", json={"aceptar": True})
+    r = client.post(f"/matches/{match_id}/responder", json={"aceptar": True}, headers=auth_headers(token_perfil))
     assert r.status_code == 200
     assert r.json()["estado"] == "confirmado"
 
 
 def test_responder_match_rechazar(client, sample_perfil, sample_empresa, sample_puesto):
-    match_id, _, _ = _setup_match(client, sample_perfil, sample_empresa, sample_puesto)
+    match_id, token_perfil, token_empresa = _setup_match(client, sample_perfil, sample_empresa, sample_puesto)
 
-    client.post(f"/matches/{match_id}/invitar")
-    r = client.post(f"/matches/{match_id}/responder", json={"aceptar": False})
+    client.post(f"/matches/{match_id}/invitar", headers=auth_headers(token_empresa))
+    r = client.post(f"/matches/{match_id}/responder", json={"aceptar": False}, headers=auth_headers(token_perfil))
     assert r.status_code == 200
     assert r.json()["estado"] == "rechazado"
 
 
 def test_responder_sin_invitar_falla(client, sample_perfil, sample_empresa, sample_puesto):
-    match_id, _, _ = _setup_match(client, sample_perfil, sample_empresa, sample_puesto)
+    match_id, token_perfil, _ = _setup_match(client, sample_perfil, sample_empresa, sample_puesto)
 
-    r = client.post(f"/matches/{match_id}/responder", json={"aceptar": True})
+    r = client.post(f"/matches/{match_id}/responder", json={"aceptar": True}, headers=auth_headers(token_perfil))
     assert r.status_code == 400
     assert r.json()["codigo"] == "TRANSICION_INVALIDA"
 
 
 def test_visibilidad_perfil_confirmado_expone_privados(client, sample_perfil, sample_empresa, sample_puesto):
-    match_id, _, _ = _setup_match(client, sample_perfil, sample_empresa, sample_puesto)
+    match_id, token_perfil, token_empresa = _setup_match(client, sample_perfil, sample_empresa, sample_puesto)
 
-    client.post(f"/matches/{match_id}/invitar")
-    client.post(f"/matches/{match_id}/responder", json={"aceptar": True})
+    client.post(f"/matches/{match_id}/invitar", headers=auth_headers(token_empresa))
+    client.post(f"/matches/{match_id}/responder", json={"aceptar": True}, headers=auth_headers(token_perfil))
 
     # Ahora GET /matches/{id} debe mostrar campos privados
     r = client.get(f"/matches/{match_id}")
@@ -111,9 +122,9 @@ def test_visibilidad_perfil_confirmado_expone_privados(client, sample_perfil, sa
 
 
 def test_responder_body_invalido(client, sample_perfil, sample_empresa, sample_puesto):
-    match_id, _, _ = _setup_match(client, sample_perfil, sample_empresa, sample_puesto)
-    client.post(f"/matches/{match_id}/invitar")
+    match_id, token_perfil, token_empresa = _setup_match(client, sample_perfil, sample_empresa, sample_puesto)
+    client.post(f"/matches/{match_id}/invitar", headers=auth_headers(token_empresa))
 
-    r = client.post(f"/matches/{match_id}/responder", json={})
+    r = client.post(f"/matches/{match_id}/responder", json={}, headers=auth_headers(token_perfil))
     assert r.status_code == 422
     assert r.json()["codigo"] == "ERROR_VALIDACION"

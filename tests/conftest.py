@@ -2,6 +2,10 @@
 Configuración de tests: Fake Firestore + TestClient de FastAPI.
 """
 
+import os
+
+os.environ.setdefault("AUTH_SECRET_KEY", "clave-de-test-no-usar-en-produccion")
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -50,6 +54,7 @@ def sample_perfil():
         "nombre": "Test",
         "apellido": "User",
         "email": "test@example.com",
+        "password": "password123",
         "telefono": "+34 600 123 456",
         "cv_texto_original": "Experiencia en Python y FastAPI.",
         "cv_data": {
@@ -68,7 +73,13 @@ def sample_empresa():
         "nombre_empresa": "TestCorp",
         "contexto": "Empresa de test para validar endpoints.",
         "email_registro": "hr@testcorp.com",
+        "password": "password123",
     }
+
+
+def auth_headers(token: str) -> dict:
+    """Header Authorization listo para pasar a `client.put/post(..., headers=...)`."""
+    return {"Authorization": f"Bearer {token}"}
 
 
 @pytest.fixture

@@ -30,14 +30,27 @@
 
 ## 3. Lista de endpoints (mapeados a las tareas del backlog)
 
-### Perfiles
+### Auth (backlog 1.1)
 
 | Método | Endpoint | Body / Params | Responde | Tarea backlog |
 |---|---|---|---|---|
-| `POST` | `/perfiles` | `{nombre, apellido, email, telefono}` | `{perfil_id}` | 1.2 |
-| `GET` | `/perfiles/{perfil_id}` | — | Documento completo del perfil (sin campos privados si lo pide alguien que no es el propio dueño) | 1.2 |
-| `PUT` | `/perfiles/{perfil_id}` | `{nombre?, apellido?, email?, telefono?}` | `{ok: true}` | 1.2 |
-| `PUT` | `/perfiles/{perfil_id}/cv` | `{cv_data: {experiencia, formacion, habilidades, proyectos}}` | `{ok: true}` — al guardar, se regenera el `embedding` del perfil | 1.3 |
+| `POST` | `/auth/login` | `{email, password, tipo: "perfil" \| "empresa"}` | `{token, id, tipo}` | 1.1 |
+
+El registro (`POST /perfiles` / `POST /empresas`) ya devuelve `token` en la
+misma respuesta — es login automático al crear la cuenta, no hace falta
+loguearse aparte después de registrarse. El token va en
+`Authorization: Bearer <token>` en cada endpoint que lo exige (ver columna
+"Requiere sesión" abajo). Formato del token: HMAC firmado con
+`AUTH_SECRET_KEY`, expira a los 7 días — ver `services/auth.py`.
+
+### Perfiles
+
+| Método | Endpoint | Body / Params | Responde | Requiere sesión | Tarea backlog |
+|---|---|---|---|---|---|
+| `POST` | `/perfiles` | `{nombre, apellido, email, password, telefono?}` | `{perfil_id, token, ...}` | No | 1.2, 1.1 |
+| `GET` | `/perfiles/{perfil_id}` | — | Documento completo del perfil (sin `password_hash`) | No | 1.2 |
+| `PUT` | `/perfiles/{perfil_id}` | `{nombre?, apellido?, email?, telefono?}` | Perfil actualizado | Sí (dueño) | 1.2 |
+| `PUT` | `/perfiles/{perfil_id}/cv` | `{cv_data: {experiencia, formacion, habilidades, proyectos}}` | `{perfil, matches_creados}` — al guardar, se regenera el `embedding` del perfil | Sí (dueño) | 1.3 |
 | `POST` | `/perfiles/{perfil_id}/cv/pdf` | `{}` (usa el `cv_texto_original` ya cargado) | El texto extraído, mapeado a `cv_data` | 3.1 |
 | `POST` | `/perfiles/{perfil_id}/cv/generar` | `{busqueda_interes: string opcional}` | `{cv_generado_harvard: string}` | 3.2, 3.3 |
 | `GET` | `/perfiles/{perfil_id}/cv/descargar` | — | Archivo PDF | 3.4 |
@@ -45,23 +58,23 @@
 
 ### Empresas y puestos
 
-| Método | Endpoint | Body / Params | Responde | Tarea backlog |
-|---|---|---|---|---|
-| `POST` | `/empresas` | `{nombre_empresa, contexto, email_registro}` | `{empresa_id}` | 1.4 |
-| `GET` | `/empresas/{empresa_id}` | — | Documento completo de la empresa | 1.4 |
-| `PUT` | `/empresas/{empresa_id}` | `{nombre_empresa?, contexto?}` | `{ok: true}` | 1.4 |
-| `POST` | `/empresas/{empresa_id}/puestos` | `{titulo, descripcion}` | `{puesto_id}` | 1.5 |
-| `GET` | `/empresas/{empresa_id}/puestos` | — | Lista de puestos de esa empresa | 1.5 |
-| `PUT` | `/puestos/{puesto_id}` | `{titulo?, descripcion?, activo?}` | `{ok: true}` — si cambia `descripcion`, se vuelve a correr la clasificación y extracción de requisitos | 1.5 |
-| `GET` | `/empresas/{empresa_id}/mapa-perfiles` | `?puesto_id=` (opcional) | Lista de `matches` con `nombre` (sin apellido), `score`, `cv_data` — nunca `apellido`, `email`, `telefono` salvo `estado = confirmado` | 4.1 |
+| Método | Endpoint | Body / Params | Responde | Requiere sesión | Tarea backlog |
+|---|---|---|---|---|---|
+| `POST` | `/empresas` | `{nombre_empresa, contexto, email_registro, password}` | `{empresa_id, token, ...}` | No | 1.4, 1.1 |
+| `GET` | `/empresas/{empresa_id}` | — | Documento completo de la empresa (sin `password_hash`) | No | 1.4 |
+| `PUT` | `/empresas/{empresa_id}` | `{nombre_empresa?, contexto?}` | Empresa actualizada | Sí (dueña) | 1.4 |
+| `POST` | `/empresas/{empresa_id}/puestos` | `{titulo, descripcion}` | `{puesto_id, ...}` | Sí (empresa dueña) | 1.5 |
+| `GET` | `/empresas/{empresa_id}/puestos` | — | Lista de puestos de esa empresa | No | 1.5 |
+| `PUT` | `/puestos/{puesto_id}` | `{titulo?, descripcion?, activo?}` | Puesto actualizado — si cambia `descripcion`, se vuelve a correr la clasificación y extracción de requisitos | Sí (empresa dueña) | 1.5 |
+| `GET` | `/empresas/{empresa_id}/mapa-perfiles` | `?puesto_id=` (opcional) | Lista de `matches` con `nombre` (sin apellido), `score`, `cv_data` — nunca `apellido`, `email`, `telefono` salvo `estado = confirmado` | No | 4.1 |
 
 ### Matches (el corazón del flujo de invitación)
 
-| Método | Endpoint | Body / Params | Responde | Tarea backlog |
-|---|---|---|---|---|
-| `POST` | `/matches/{match_id}/invitar` | `{}` (acción manual de la empresa) | `{ok: true, estado: "notificado"}` | 4.2 |
-| `POST` | `/matches/{match_id}/responder` | `{aceptar: boolean}` | `{ok: true, estado: "confirmado" \| "rechazado"}` | 4.4 |
-| `GET` | `/matches/{match_id}` | — | Documento completo del match, con visibilidad de campos según `estado` (ver esquema de datos) | 2.10 |
+| Método | Endpoint | Body / Params | Responde | Requiere sesión | Tarea backlog |
+|---|---|---|---|---|---|
+| `POST` | `/matches/{match_id}/invitar` | `{}` | Match actualizado, `estado: "notificado"` | Sí (empresa dueña del match) | 4.2 |
+| `POST` | `/matches/{match_id}/responder` | `{aceptar: boolean}` | Match actualizado, `estado: "confirmado" \| "rechazado"` | Sí (perfil dueño del match) | 4.4 |
+| `GET` | `/matches/{match_id}` | — | Documento completo del match, con visibilidad de campos según `estado` (ver esquema de datos) | No | 2.10 |
 
 ---
 
@@ -88,6 +101,9 @@ Cada módulo del backend expone funciones con nombres predecibles — así, quie
 | `services/gemini_client.py` | `generar_json(system_instruction, contents, response_schema, model=None, temperature=0.0)` | Único punto de acceso a Gemini para los 3 agentes: llama al modelo y devuelve la respuesta ya parseada como el modelo Pydantic de `response_schema` | ✅ sí |
 | `services/gemini_client.py` | `generar_embedding_vector(texto, model=None)` | Llamada real a la API de embeddings (Google AI Studio o Vertex AI, según `GEMINI_API_KEY`) | ✅ sí |
 | `services/cv_generator.py` | `generar_cv_harvard(cv_data, busqueda_interes=None)` | Devuelve el texto del CV formateado | ✅ sí |
+| `services/auth.py` | `hashear_password(password)` / `verificar_password(password, hash)` | PBKDF2-HMAC-SHA256 con salt aleatorio | ❌ no |
+| `services/auth.py` | `crear_token(sujeto_id, tipo)` / `verificar_token(token)` | Token de sesión firmado con HMAC (`AUTH_SECRET_KEY`), expira a los 7 días | ❌ no |
+| `routes/auth.py` | `usuario_actual(authorization)` | Dependency de FastAPI: exige `Authorization: Bearer <token>` válido, devuelve `{sub, tipo, exp}` | ❌ no |
 
 **Sobre la columna "¿Usa Gemini?":** solo lo que está en `agents/` (más el generador de CV) hace llamadas de *razonamiento* al modelo — decisiones, criterio, texto libre. `services/embeddings.py` sí llama a Gemini por debajo (vía `gemini_client.py`) pero es una transformación mecánica (texto → vector), no una decisión — por eso está marcado con *. Todo lo demás es determinístico — esa separación es deliberada y es lo que mantiene bajo el costo y la latencia del sistema.
 

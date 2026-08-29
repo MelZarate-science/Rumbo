@@ -28,6 +28,7 @@ sees the other until there is explicit consent.
 
 | Feature | Status |
 |---|---|
+| Auth (password + session token, backlog 1.1) | ✅ |
 | Profile CRUD + CV data | ✅ |
 | Company & job post CRUD | ✅ |
 | Role classification (Gemini) | ✅ |
@@ -36,7 +37,7 @@ sees the other until there is explicit consent.
 | Two-level retrieval (`find_nearest()` + filter) | ✅ |
 | Match persistence with staged visibility | ✅ |
 | Invite / accept / reject lifecycle | ✅ |
-| Tests (36) with in-memory fake Firestore + fake Gemini | ✅ |
+| Tests (45) with in-memory fake Firestore + fake Gemini | ✅ |
 
 **Still deferred**: Pub/Sub async trigger on profile registration (matching runs
 synchronously from `PUT /perfiles/{id}/cv` instead — backlog 2.11, low priority),

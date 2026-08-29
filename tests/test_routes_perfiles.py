@@ -4,6 +4,8 @@ Tests de endpoints de perfiles.
 
 import pytest
 
+from tests.conftest import auth_headers
+
 
 def test_crear_perfil_ok(client, sample_perfil):
     r = client.post("/perfiles", json=sample_perfil)
@@ -45,7 +47,8 @@ def test_obtener_perfil_no_existe(client):
 def test_actualizar_perfil_ok(client, sample_perfil):
     r = client.post("/perfiles", json=sample_perfil)
     pid = r.json()["perfil_id"]
-    r = client.put(f"/perfiles/{pid}", json={"nombre": "Nuevo", "apellido": "Nombre"})
+    token = r.json()["token"]
+    r = client.put(f"/perfiles/{pid}", json={"nombre": "Nuevo", "apellido": "Nombre"}, headers=auth_headers(token))
     assert r.status_code == 200
     assert r.json()["nombre"] == "Nuevo"
     assert r.json()["apellido"] == "Nombre"
@@ -53,9 +56,17 @@ def test_actualizar_perfil_ok(client, sample_perfil):
     assert r.json()["email"] == "test@example.com"
 
 
+def test_actualizar_perfil_sin_token_falla(client, sample_perfil):
+    r = client.post("/perfiles", json=sample_perfil)
+    pid = r.json()["perfil_id"]
+    r = client.put(f"/perfiles/{pid}", json={"nombre": "Nuevo"})
+    assert r.status_code == 401
+
+
 def test_actualizar_cv_dispara_matching(client, sample_perfil):
     r = client.post("/perfiles", json=sample_perfil)
     pid = r.json()["perfil_id"]
+    token = r.json()["token"]
 
     cv = {
         "experiencia": [],
@@ -63,7 +74,7 @@ def test_actualizar_cv_dispara_matching(client, sample_perfil):
         "habilidades": ["Python", "FastAPI", "Docker"],
         "proyectos": [],
     }
-    r = client.put(f"/perfiles/{pid}/cv", json=cv)
+    r = client.put(f"/perfiles/{pid}/cv", json=cv, headers=auth_headers(token))
     assert r.status_code == 200
     data = r.json()
     assert "perfil" in data
@@ -75,11 +86,13 @@ def test_listar_matches_perfil_oculta_empresa_pendiente(client, sample_perfil, s
     # Crear perfil
     r = client.post("/perfiles", json=sample_perfil)
     pid = r.json()["perfil_id"]
+    token_perfil = r.json()["token"]
 
     # Crear empresa y puesto (indexado automático)
     r = client.post("/empresas", json=sample_empresa)
     eid = r.json()["empresa_id"]
-    r = client.post(f"/empresas/{eid}/puestos", json=sample_puesto)
+    token_empresa = r.json()["token"]
+    r = client.post(f"/empresas/{eid}/puestos", json=sample_puesto, headers=auth_headers(token_empresa))
     assert r.status_code == 201
 
     # Actualizar CV -> matching
@@ -89,7 +102,7 @@ def test_listar_matches_perfil_oculta_empresa_pendiente(client, sample_perfil, s
         "habilidades": ["Python", "FastAPI", "PostgreSQL"],
         "proyectos": [],
     }
-    r = client.put(f"/perfiles/{pid}/cv", json=cv)
+    r = client.put(f"/perfiles/{pid}/cv", json=cv, headers=auth_headers(token_perfil))
     assert r.status_code == 200
     matches = r.json()["matches_creados"]
     assert len(matches) > 0

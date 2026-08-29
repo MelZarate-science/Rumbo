@@ -1,20 +1,22 @@
 """
 Endpoints de empresas. Ver `rumbo-contrato-interfaces.md`, sección 3.
 
-POST /empresas                            -> crea empresa (1.4)
+POST /empresas                            -> crea empresa (1.4) + devuelve token de sesión (1.1)
 GET  /empresas/{empresa_id}               -> devuelve empresa (1.4)
-PUT  /empresas/{empresa_id}               -> edita empresa (1.4)
-POST /empresas/{empresa_id}/puestos       -> carga puesto + dispara indexado (1.5)
+PUT  /empresas/{empresa_id}               -> edita empresa (1.4), requiere sesión propia
+POST /empresas/{empresa_id}/puestos       -> carga puesto + dispara indexado (1.5), requiere sesión propia
 GET  /empresas/{empresa_id}/puestos       -> lista puestos (1.5)
 GET  /empresas/{empresa_id}/mapa-perfiles -> matches de la empresa, ?puesto_id= opcional (4.1)
 """
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from models.empresa import Empresa, EmpresaCreate, EmpresaUpdate
 from models.puesto import Puesto, PuestoCreate
 from pipeline.matching_pipeline import ejecutar_pipeline_indexado
+from routes.auth import usuario_actual
+from services.auth import crear_token, hashear_password
 from services.firestore_client import crear, listar, obtener
 from services.invitaciones import filtrar_campos_visibles
 
@@ -28,15 +30,27 @@ def _error(status_code: int, mensaje: str, codigo: str):
     )
 
 
+def _sin_internos(data: dict) -> dict:
+    return {k: v for k, v in data.items() if k not in Empresa.CAMPOS_INTERNOS}
+
+
+def _requiere_dueno(empresa_id: str, sesion: dict) -> None:
+    if sesion["tipo"] != "empresa" or sesion["sub"] != empresa_id:
+        _error(status.HTTP_403_FORBIDDEN, "No podés modificar una empresa que no es la tuya", "NO_AUTORIZADO")
+
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 def crear_empresa(empresa: EmpresaCreate):
-    """Crea una empresa. El ID lo genera Firestore."""
+    """Crea una empresa y devuelve un token de sesión (login automático al registrarse)."""
     datos = empresa.model_dump(mode="python", exclude_none=True)
+    datos["password_hash"] = hashear_password(datos.pop("password"))
     datos["created_at"] = datetime.now(UTC)
     datos["activa"] = True
     empresa_id = crear("empresas", datos)
-    datos["empresa_id"] = empresa_id
-    return {"empresa_id": empresa_id, **datos}
+    respuesta = _sin_internos(datos)
+    respuesta["empresa_id"] = empresa_id
+    respuesta["token"] = crear_token(empresa_id, "empresa")
+    return {"empresa_id": empresa_id, **respuesta}
 
 
 @router.get("/{empresa_id}")
@@ -46,12 +60,13 @@ def obtener_empresa(empresa_id: str):
     if data is None:
         _error(status.HTTP_404_NOT_FOUND, "Empresa no encontrada", "EMPRESA_NO_ENCONTRADA")
     data["empresa_id"] = empresa_id
-    return data
+    return _sin_internos(data)
 
 
 @router.put("/{empresa_id}")
-def actualizar_empresa(empresa_id: str, cambios: EmpresaUpdate):
-    """Actualiza datos de la empresa."""
+def actualizar_empresa(empresa_id: str, cambios: EmpresaUpdate, sesion: dict = Depends(usuario_actual)):
+    """Actualiza datos de la empresa. Requiere sesión propia."""
+    _requiere_dueno(empresa_id, sesion)
     data = obtener("empresas", empresa_id)
     if data is None:
         _error(status.HTTP_404_NOT_FOUND, "Empresa no encontrada", "EMPRESA_NO_ENCONTRADA")
@@ -64,14 +79,16 @@ def actualizar_empresa(empresa_id: str, cambios: EmpresaUpdate):
     actualizar("empresas", empresa_id, updates)
     data = obtener("empresas", empresa_id)
     data["empresa_id"] = empresa_id
-    return data
+    return _sin_internos(data)
 
 
 @router.post("/{empresa_id}/puestos", status_code=status.HTTP_201_CREATED)
-def crear_puesto(empresa_id: str, puesto: PuestoCreate):
+def crear_puesto(empresa_id: str, puesto: PuestoCreate, sesion: dict = Depends(usuario_actual)):
     """
     Crea un puesto bajo la empresa y dispara el indexado (clasificación + extracción).
+    Requiere sesión propia.
     """
+    _requiere_dueno(empresa_id, sesion)
     data = obtener("empresas", empresa_id)
     if data is None:
         _error(status.HTTP_404_NOT_FOUND, "Empresa no encontrada", "EMPRESA_NO_ENCONTRADA")
@@ -141,6 +158,7 @@ def mapa_perfiles_empresa(empresa_id: str, puesto_id: str | None = None):
             perfil_filtrado.pop("embedding", None)
             perfil_filtrado.pop("busqueda_interes", None)
             perfil_filtrado.pop("created_at", None)
+            perfil_filtrado.pop("password_hash", None)
         else:
             perfil_filtrado = {}
 

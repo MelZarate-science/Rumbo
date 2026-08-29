@@ -6,9 +6,10 @@ GET  /matches/{match_id}           -> match con visibilidad según estado (2.10)
 POST /matches/{match_id}/invitar   -> acción MANUAL de la empresa (4.2)
 POST /matches/{match_id}/responder -> acción MANUAL del perfil (4.4)
 """
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from models.match import EstadoMatch
+from routes.auth import usuario_actual
 from services.firestore_client import obtener
 from services.invitaciones import (
     TransicionInvalidaError,
@@ -62,6 +63,7 @@ def obtener_match(match_id: str):
         perfil_filtrado.pop("embedding", None)
         perfil_filtrado.pop("busqueda_interes", None)
         perfil_filtrado.pop("created_at", None)
+        perfil_filtrado.pop("password_hash", None)
     else:
         perfil_filtrado = {}
 
@@ -88,11 +90,17 @@ def obtener_match(match_id: str):
 
 
 @router.post("/{match_id}/invitar")
-def invitar_match(match_id: str):
+def invitar_match(match_id: str, sesion: dict = Depends(usuario_actual)):
     """
     Acción MANUAL de la empresa: invita al perfil.
-    Cambia estado pendiente -> notificado.
+    Cambia estado pendiente -> notificado. Requiere sesión de la empresa dueña.
     """
+    match_actual = obtener("matches", match_id)
+    if match_actual is None:
+        _error(status.HTTP_404_NOT_FOUND, "Match no encontrado", "MATCH_NO_ENCONTRADO")
+    if sesion["tipo"] != "empresa" or sesion["sub"] != match_actual.get("empresa_id"):
+        _error(status.HTTP_403_FORBIDDEN, "No podés invitar sobre un match que no es tuyo", "NO_AUTORIZADO")
+
     try:
         match = enviar_invitacion(match_id)
     except TransicionInvalidaError as e:
@@ -107,11 +115,17 @@ class ResponderBody(dict):
 
 
 @router.post("/{match_id}/responder")
-def responder_match(match_id: str, body: dict):
+def responder_match(match_id: str, body: dict, sesion: dict = Depends(usuario_actual)):
     """
     Acción MANUAL del perfil: acepta o rechaza la invitación.
-    Cambia estado notificado -> confirmado | rechazado.
+    Cambia estado notificado -> confirmado | rechazado. Requiere sesión del perfil dueño.
     """
+    match_actual = obtener("matches", match_id)
+    if match_actual is None:
+        _error(status.HTTP_404_NOT_FOUND, "Match no encontrado", "MATCH_NO_ENCONTRADO")
+    if sesion["tipo"] != "perfil" or sesion["sub"] != match_actual.get("perfil_id"):
+        _error(status.HTTP_403_FORBIDDEN, "No podés responder un match que no es tuyo", "NO_AUTORIZADO")
+
     aceptar = body.get("aceptar")
     if not isinstance(aceptar, bool):
         _error(status.HTTP_422_UNPROCESSABLE_ENTITY, "Campo 'aceptar' (bool) requerido", "ERROR_VALIDACION")

@@ -7,18 +7,24 @@ import os
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from routes import empresas, matches, perfiles, puestos
+from routes import auth, empresas, matches, perfiles, puestos
 
 logging.basicConfig(level=logging.INFO)
 
 app = FastAPI(title="Rumbo", version="0.1.0")
 
+app.include_router(auth.router)
 app.include_router(perfiles.router)
 app.include_router(empresas.router)
 app.include_router(puestos.router)
 app.include_router(matches.router)
+
+# Frontend mínimo (backlog 1.6, 2.12, 2.13, 4.1) — montado bajo /app para no
+# pisar los endpoints de la API, que viven en la raíz (/perfiles, /empresas, etc).
+app.mount("/app", StaticFiles(directory="frontend", html=True), name="frontend")
 
 
 @app.get("/health")

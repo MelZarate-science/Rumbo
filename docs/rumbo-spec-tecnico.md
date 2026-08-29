@@ -135,7 +135,7 @@ Este es el corazón ético del producto, y la decisión de diseño más distinti
 
 | Componente | Elección |
 |---|---|
-| Modelo | Gemini 3.5 (Flash para la mayoría de las operaciones, Pro para el razonamiento del Auditor) |
+| Modelo | Gemini 2.5 Flash para los 3 agentes (gemini-3.5-flash tiene cuota gratuita de solo 20 req/día por ser tan nuevo; 2.5 Flash tiene cientos/día en capa gratuita) |
 | Framework de agentes | Google ADK |
 | Base de datos | Firestore, con soporte vectorial nativo (`find_nearest()`) |
 | Cómputo | Cloud Run |
