@@ -22,6 +22,29 @@ sees the other until there is explicit consent.
 
 ---
 
+## MVP Status (Backend)
+
+✅ **Fully functional backend** — all core flows implemented and tested:
+
+| Feature | Status |
+|---|---|
+| Profile CRUD + CV data | ✅ |
+| Company & job post CRUD | ✅ |
+| Role classification (deterministic) | ✅ |
+| Requirement extraction (catalog + fallback) | ✅ |
+| Fit Auditor (score + quantitative roadmap) | ✅ |
+| Two-level retrieval (token-overlap + filter) | ✅ |
+| Match persistence with staged visibility | ✅ |
+| Invite / accept / reject lifecycle | ✅ |
+| Tests (36) with in-memory fake Firestore | ✅ |
+
+**Scope per `docs/backend.md`**: Pub/Sub, Cloud Run, Vertex AI, Gemini, PDF generation,
+and Harvard CV are **deferred** (out of MVP critical path). The three agents run
+deterministically (no model reasoning) — see `services/normalizacion.py` and
+`agents/*.py`.
+
+---
+
 ## Architecture
 
 A **sequential multi-agent system** with two human checkpoints. There is no
@@ -29,19 +52,19 @@ model-based coordinator agent: the flow is deterministic, so orchestration is
 plain code. Model reasoning is reserved for the three points where semantic
 judgment is actually needed.
 
-### The three agents
+### The three agents (MVP: deterministic)
 
 | Agent | What it does | When it runs |
 |---|---|---|
-| **Role Classifier** | Decides whether a job post belongs to an existing role or creates a new one | When a job post is created |
-| **Requirement Extractor** | Breaks the description into discrete requirements and updates the role's frequency table | When a job post is created |
-| **Fit Auditor** | Computes score + quantitative roadmap comparing resume vs. job post vs. market data | Once per candidate job post |
+| **Role Classifier** | Decides whether a job post belongs to an existing role or creates a new one (token overlap vs. `roles_normalizados`) | When a job post is created |
+| **Requirement Extractor** | Breaks the description into discrete requirements, matches against `requisitos_normalizados` catalog, creates new ones if needed, updates role frequency table | When a job post is created |
+| **Fit Auditor** | Computes score + quantitative roadmap comparing resume vs. job post vs. market data (role frequencies) | Once per candidate job post |
 
-### Two-level retrieval
+### Two-level retrieval (MVP: no embeddings)
 
-1. **Level 1** — `find_nearest()` of the profile's embedding against
-   `normalized_roles` (small collection: cheap semantic search).
-2. **Level 2** — simple filter of `job_posts` by `normalized_role_id`
+1. **Level 1** — token-overlap similarity between profile text and
+   `roles_normalizados` (`nombre_normalizado` + `descripcion_consolidada`).
+2. **Level 2** — simple filter of `puestos` by `rol_normalizado_id`
    (no vectors, no LLM).
 
 Only over that narrowed set does the Auditor run. This avoids comparing a
@@ -51,16 +74,19 @@ profile against twenty near-identical "Product Manager" postings.
 
 ---
 
-## Stack
+## Stack (MVP)
 
 | Component | Technology |
 |---|---|
-| Model | Gemini 3.5 (Flash / Pro) via Vertex AI |
-| Agent framework | Google ADK |
-| Database | Firestore (with native vector search) |
-| Compute | Cloud Run |
-| Async trigger | Pub/Sub |
-| API | FastAPI (Python 3.12) |
+| API | FastAPI (Python 3.12+) |
+| Database | Firestore (emulator for local dev) |
+| Testing | pytest + httpx + in-memory FakeFirestore |
+| Agents | Deterministic Python (no Vertex AI / ADK in MVP) |
+| Validation | Pydantic v2 |
+
+> **Nota**: `google-adk`, `google-cloud-aiplatform`, `google-cloud-pubsub` están en
+> `requirements.txt` para fases futuras, pero **no se usan en el MVP**.
+> Los embeddings están deshabilitados (ver `services/embeddings.py`).
 
 ---
 
@@ -69,8 +95,7 @@ profile against twenty near-identical "Product Manager" postings.
 ### 1. Prerequisites
 
 - Python 3.12+
-- Google Cloud account with billing enabled
-- `gcloud` CLI installed and authenticated
+- (Opcional) `gcloud` CLI si quieres usar el emulador de Firestore local
 
 ### 2. Clone and install
 
@@ -92,36 +117,95 @@ cp .env.example .env
 
 Fill in `.env` with your project's values. **The real `.env` is never committed.**
 
-### 4. Authenticate with Google Cloud
+**Para desarrollo SIN credenciales GCP** (usa el emulador de Firestore):
 
 ```bash
-gcloud auth application-default login
-gcloud config set project YOUR-PROJECT-ID
-```
+# Terminal 1: levantar emulador
+gcloud emulators firestore start --host-port=localhost:8080
 
-### 5. Enable the required APIs
-
-```bash
-gcloud services enable \
-  aiplatform.googleapis.com \
-  firestore.googleapis.com \
-  run.googleapis.com \
-  pubsub.googleapis.com
-```
-
-### 6. Run locally
-
-```bash
+# Terminal 2: exportar variable y correr la app
+export FIRESTORE_EMULATOR_HOST=localhost:8080
 uvicorn main:app --reload --port 8080
 ```
 
-Verify: `curl http://localhost:8080/health`
+El SDK de Firestore detecta `FIRESTORE_EMULATOR_HOST` automáticamente.
 
-### 7. Seed sample data
+### 4. Run tests (no GCP needed)
 
 ```bash
+python -m pytest tests/ -v
+```
+
+Todos los tests usan `tests/fakes.py` (FakeFirestore en memoria), así que
+**no requieren credenciales ni emulador**.
+
+### 5. Seed sample data (requiere emulador o GCP real)
+
+```bash
+export FIRESTORE_EMULATOR_HOST=localhost:8080  # o usa tu proyecto GCP real
 python -m scripts.seed_data
 ```
+
+Crea 6 perfiles variados, 4 empresas, 7 puestos y ejecuta matching.
+
+### 6. Verify
+
+```bash
+curl http://localhost:8080/health
+# {"status":"ok","service":"rumbo"}
+```
+
+---
+
+## API Endpoints (MVP)
+
+### Perfiles
+| Method | Path | Descripción |
+|---|---|---|
+| POST | `/perfiles` | Crear perfil |
+| GET | `/perfiles/{id}` | Obtener perfil (vista propietario) |
+| PUT | `/perfiles/{id}` | Editar datos personales |
+| PUT | `/perfiles/{id}/cv` | Cargar/actualizar `cv_data` + **dispara matching** |
+| GET | `/perfiles/{id}/matches` | Matches del perfil (empresa oculta si `pendiente`) |
+
+### Empresas
+| Method | Path | Descripción |
+|---|---|---|
+| POST | `/empresas` | Crear empresa |
+| GET | `/empresas/{id}` | Obtener empresa |
+| PUT | `/empresas/{id}` | Editar empresa |
+| POST | `/empresas/{id}/puestos` | Crear puesto + **indexado automático** |
+| GET | `/empresas/{id}/puestos` | Listar puestos activos |
+| GET | `/empresas/{id}/matches` | Matches de la empresa (perfil filtrado según estado) |
+
+### Puestos
+| Method | Path | Descripción |
+|---|---|---|
+| GET | `/puestos/{id}` | Obtener puesto |
+| PUT | `/puestos/{id}` | Editar puesto (re-indexa si cambia título/descripción) |
+
+### Matches (opt-in flow)
+| Method | Path | Descripción |
+|---|---|---|
+| GET | `/matches/{id}` | Match con visibilidad según estado |
+| POST | `/matches/{id}/invitar` | **Empresa** invita (`pendiente` → `notificado`) |
+| POST | `/matches/{id}/responder` | **Perfil** responde (`notificado` → `confirmado` / `rechazado`) |
+
+**Body `responder`**: `{"aceptar": true|false}`
+
+---
+
+## Visibilidad escalonada (regla del MVP)
+
+| Estado | Perfil ve empresa | Empresa ve apellido/email/teléfono |
+|---|---|---|
+| `pendiente` | ❌ (solo `empresa_id`) | ❌ |
+| `notificado` | ✅ (nombre empresa) | ❌ |
+| `confirmado` | ✅ | ✅ |
+| `rechazado` | ✅ | ❌ |
+
+La lógica vive en `services/invitaciones.py` (`filtrar_campos_visibles`,
+`es_empresa_visible`).
 
 ---
 
@@ -135,7 +219,7 @@ gcloud run deploy rumbo-dev \
   --set-env-vars GOOGLE_CLOUD_PROJECT=YOUR-PROJECT-ID
 ```
 
-Automatic deployment is wired through Cloud Build:
+Automatic deployment via Cloud Build:
 - push to `develop` → deploys to `rumbo-dev`
 - push to `main` → deploys to `rumbo-prod`
 
@@ -145,26 +229,38 @@ Automatic deployment is wired through Cloud Build:
 
 ```
 rumbo/
-├── main.py                  # FastAPI entrypoint
-├── agents/                  # the 3 agents that use Gemini
+├── main.py                  # FastAPI entrypoint + error handlers
+├── agents/                  # 3 agents (deterministic in MVP)
 │   ├── clasificador_roles.py
 │   ├── extractor_requisitos.py
 │   ├── auditor_fit.py
-│   └── prompts/             # system prompts, one file per agent
+│   └── prompts/             # stubs (not used in MVP)
 ├── pipeline/
-│   └── matching_pipeline.py # plain-code orchestration (NOT an agent)
+│   └── matching_pipeline.py # plain-code orchestration
 ├── services/                # logic with no model reasoning
 │   ├── firestore_client.py  # single access point to Firestore
-│   ├── embeddings.py
-│   ├── retrieval.py         # both retrieval levels
-│   ├── normalizacion.py
-│   ├── invitaciones.py      # match lifecycle and staged visibility
-│   └── cv_generator.py
-├── models/                  # one class per collection
+│   ├── embeddings.py        # disabled in MVP (logs warning)
+│   ├── retrieval.py         # 2-level retrieval (token overlap)
+│   ├── normalizacion.py     # text utils + frecuencia helpers
+│   ├── invitaciones.py      # match lifecycle + staged visibility
+│   └── cv_generator.py      # stub (Fase 3)
+├── models/                  # one Pydantic class per collection
 ├── routes/                  # HTTP endpoints
-├── scripts/seed_data.py
+├── scripts/seed_data.py     # reproducible seed (6 perfiles, 4 empresas)
 ├── tests/
+│   ├── conftest.py          # FakeFirestore + TestClient fixtures
+│   ├── fakes.py             # in-memory Firestore implementation
+│   ├── test_routes_perfiles.py
+│   ├── test_routes_empresas.py
+│   ├── test_routes_matches.py
+│   └── test_services.py     # invitaciones + auditor_fit
 └── docs/
+    ├── backend.md           # MVP roadmap (this implementation)
+    ├── rumbo-contrato-interfaces.md
+    ├── rumbo-schema-bd.md
+    ├── rumbo-backlog.md
+    ├── rumbo-flujo-trabajo.md
+    └── rumbo-spec-tecnico.md
 ```
 
 ---

@@ -1,5 +1,5 @@
 """Modelo de la colección `matches`. Ver `rumbo-schema-bd.md`."""
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import datetime
 from enum import Enum
 
@@ -26,7 +26,7 @@ class Match(BaseModel):
     empresa_id: str
     puesto_id: str | None = None
     score: int                           # 0-100
-    roadmap: list[RoadmapItem] = []
+    roadmap: list[RoadmapItem] = Field(default_factory=list)
     justificacion: str
     estado: EstadoMatch = EstadoMatch.PENDIENTE
     created_at: datetime | None = None

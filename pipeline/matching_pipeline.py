@@ -11,34 +11,41 @@ Backlog: tareas 2.7 a 2.11
 """
 
 from agents.auditor_fit import calcular_score_y_roadmap
-from services.embeddings import generar_embedding_perfil
-from services.retrieval import buscar_roles_afines, buscar_puestos_de_roles
-from services.firestore_client import crear
+from agents.clasificador_roles import clasificar_puesto
+from agents.extractor_requisitos import extraer_requisitos
+from services.firestore_client import crear, obtener
+from services.retrieval import buscar_puestos_de_roles, buscar_roles_afines
 
 
 def ejecutar_pipeline_matching(perfil_id: str) -> list[str]:
     """
-    Corre el matching completo para un perfil recién registrado.
+    Corre el matching completo para un perfil recién registrado (o con CV actualizado).
 
-    Disparado de forma asíncrona por Pub/Sub cuando se crea un perfil nuevo,
-    sin ninguna acción manual del usuario.
+    Disparado de forma síncrona desde la ruta PUT /perfiles/{id}/cv.
+    (Pub/Sub está diferido — ver backend.md Fase 1).
 
     Returns:
         Lista de `match_id` creados.
     """
-    generar_embedding_perfil(perfil_id)
-
-    roles_ids = buscar_roles_afines(perfil_id)          # Nivel 1 — semántico
+    roles_ids = buscar_roles_afines(perfil_id)          # Nivel 1 — token-overlap
     puestos_ids = buscar_puestos_de_roles(roles_ids)    # Nivel 2 — filtro simple
 
     matches_creados = []
     for puesto_id in puestos_ids:
         resultado = calcular_score_y_roadmap(perfil_id, puesto_id)
+
+        # Resolver empresa_id desde el puesto para el modelo Match
+        puesto = obtener("puestos", puesto_id)
+        empresa_id = puesto.get("empresa_id") if puesto else None
+
         match_id = crear("matches", {
             "perfil_id": perfil_id,
+            "empresa_id": empresa_id,
             "puesto_id": puesto_id,
+            "score": resultado["score"],
+            "roadmap": resultado["roadmap"],
+            "justificacion": resultado["justificacion"],
             "estado": "pendiente",
-            **resultado,
         })
         matches_creados.append(match_id)
 
@@ -52,8 +59,9 @@ def ejecutar_pipeline_indexado(puesto_id: str) -> None:
 
     Backlog: tareas 2.3, 2.5, 2.6
     """
-    from agents.clasificador_roles import clasificar_puesto
-    from agents.extractor_requisitos import extraer_requisitos
-
     clasificar_puesto(puesto_id)
-    extraer_requisitos(puesto_id)
+    req_ids, nuevos = extraer_requisitos(puesto_id)
+    # Guardar cuáles requisitos son nuevos para que el auditor los marque como específicos
+    if nuevos:
+        from services.firestore_client import actualizar
+        actualizar("puestos", puesto_id, {"requisitos_nuevos": list(nuevos)})
