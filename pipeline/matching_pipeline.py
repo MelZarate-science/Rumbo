@@ -13,6 +13,7 @@ Backlog: tareas 2.7 a 2.11
 from agents.auditor_fit import calcular_score_y_roadmap
 from agents.clasificador_roles import clasificar_puesto
 from agents.extractor_requisitos import extraer_requisitos
+from services.embeddings import generar_embedding_perfil
 from services.firestore_client import crear, obtener
 from services.retrieval import buscar_puestos_de_roles, buscar_roles_afines
 
@@ -22,12 +23,13 @@ def ejecutar_pipeline_matching(perfil_id: str) -> list[str]:
     Corre el matching completo para un perfil recién registrado (o con CV actualizado).
 
     Disparado de forma síncrona desde la ruta PUT /perfiles/{id}/cv.
-    (Pub/Sub está diferido — ver backend.md Fase 1).
+    (Pub/Sub está diferido — backlog 2.11, prioridad 🟡).
 
     Returns:
         Lista de `match_id` creados (nuevos; no duplica perfil_id + puesto_id).
     """
-    roles_ids = buscar_roles_afines(perfil_id)          # Nivel 1 — token-overlap
+    generar_embedding_perfil(perfil_id)                 # se regenera en cada corrida (cv_data pudo cambiar)
+    roles_ids = buscar_roles_afines(perfil_id)          # Nivel 1 — find_nearest()
     puestos_ids = buscar_puestos_de_roles(roles_ids)    # Nivel 2 — filtro simple
 
     # Verificar matches existentes para no duplicar

@@ -110,3 +110,43 @@ def listar(coleccion: str, filtros: dict | None = None) -> list[dict]:
         return [{**doc.to_dict(), "_document_id": doc.id} for doc in docs]
     except Exception as exc:  # noqa: BLE001
         raise FirestoreError(f"listar {coleccion}: {exc}") from exc
+
+
+def guardar_embedding(coleccion: str, doc_id: str, campo: str, valores: list[float]) -> None:
+    """
+    Guarda un embedding en `campo`, envuelto como `Vector` de Firestore
+    (requerido para que `find_nearest()` pueda usarlo). Usado por
+    `services/embeddings.py`.
+    """
+    from google.cloud.firestore_v1.vector import Vector
+
+    try:
+        _client().collection(coleccion).document(doc_id).update({campo: Vector(valores)})
+    except Exception as exc:  # noqa: BLE001
+        raise FirestoreError(f"guardar_embedding {coleccion}/{doc_id}.{campo}: {exc}") from exc
+
+
+def buscar_vecinos(coleccion: str, campo_vector: str, vector: list[float], limite: int = 3) -> list[dict]:
+    """
+    NIVEL 1 del retrieval: `find_nearest()` de Firestore contra `campo_vector`.
+    Devuelve los `limite` documentos más cercanos por similitud coseno.
+
+    Cada dict devuelto incluye `_document_id`.
+    """
+    from google.cloud.firestore_v1.base_vector_query import DistanceMeasure
+
+    try:
+        docs = (
+            _client()
+            .collection(coleccion)
+            .find_nearest(
+                vector_field=campo_vector,
+                query_vector=vector,
+                limit=limite,
+                distance_measure=DistanceMeasure.COSINE,
+            )
+            .stream()
+        )
+        return [{**doc.to_dict(), "_document_id": doc.id} for doc in docs]
+    except Exception as exc:  # noqa: BLE001
+        raise FirestoreError(f"buscar_vecinos {coleccion}.{campo_vector}: {exc}") from exc

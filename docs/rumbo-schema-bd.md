@@ -14,6 +14,7 @@
 | `email_registro` | string | Email de contacto usado en el registro (sin validación de dominio en el MVP) |
 | `created_at` | timestamp | Fecha de registro |
 | `activa` | boolean | Permite desactivar sin borrar (soft delete) |
+| `updated_at` | timestamp (opcional) | Última vez que se editó la empresa |
 
 **Nota de scope:** sin campo de validación/verificación — decisión consciente del MVP, documentada en el spec.
 
@@ -61,6 +62,8 @@ Cada habilidad/herramienta/requisito es una entidad única, sin importar en cuá
 | `activo` | boolean | Si sigue disponible para matching |
 | `rol_normalizado_id` | string (referencia) | ID del documento en `roles_normalizados` al que pertenece este puesto. Lo asigna Gemini automáticamente al momento de cargar el puesto |
 | `requisitos_extraidos` | array de strings (IDs) | Referencias a `requisitos_normalizados` — Gemini extrae los requisitos de `descripcion` al cargar el puesto y los matchea contra entidades existentes (o crea una nueva si no hay ninguna lo bastante cercana) |
+| `requisitos_nuevos` | array de strings (IDs, opcional) | Subconjunto de `requisitos_extraidos` creados recién por el Agente 2 para este puesto puntual (no estaban en el catálogo antes). El Auditor de fit lo usa para marcar `especifico_de_esta_empresa` en el roadmap — ver colección `matches` |
+| `updated_at` | timestamp (opcional) | Última vez que se editó el puesto (dispara re-indexado si cambia `titulo`/`descripcion`) |
 
 **Nota:** un puesto es opcional — una empresa puede existir solo con `contexto` y sin ningún puesto cargado todavía, y el matching igual puede correr contra ese contexto general.
 
@@ -81,6 +84,7 @@ Cada habilidad/herramienta/requisito es una entidad única, sin importar en cuá
 | `busqueda_interes` | string (opcional) | Puesto/rol que el usuario indicó como objetivo, para adaptar el CV generado | — |
 | `embedding` | vector | Embedding generado a partir de todo el `cv_data` consolidado — es contra este campo que se corre `find_nearest()` sobre `roles_normalizados` | — |
 | `created_at` | timestamp | Fecha de registro | — |
+| `updated_at` | timestamp (opcional) | Última vez que se editaron los datos personales del perfil o su `cv_data` | — |
 
 **Nota de privacidad (Fase 4 del backlog):** los campos marcados como visibles antes del opt-in son los únicos que debe devolver la función/endpoint que arma el "mapa de perfiles" para la empresa. `apellido`, `email` y `telefono` solo se incluyen en la respuesta después de que el `match` correspondiente pase a estado `confirmado`.
 

@@ -75,7 +75,7 @@ def test_matches_empresa_filtra_privacidad(client, sample_perfil, sample_empresa
     client.put(f"/perfiles/{pid}/cv", json=cv)
 
     # Listar matches desde empresa
-    r = client.get(f"/empresas/{eid}/matches")
+    r = client.get(f"/empresas/{eid}/mapa-perfiles")
     assert r.status_code == 200
     data = r.json()
     assert len(data) > 0

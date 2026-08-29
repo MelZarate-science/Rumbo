@@ -30,18 +30,25 @@ sees the other until there is explicit consent.
 |---|---|
 | Profile CRUD + CV data | ✅ |
 | Company & job post CRUD | ✅ |
-| Role classification (deterministic) | ✅ |
-| Requirement extraction (catalog + fallback) | ✅ |
-| Fit Auditor (score + quantitative roadmap) | ✅ |
-| Two-level retrieval (token-overlap + filter) | ✅ |
+| Role classification (Gemini) | ✅ |
+| Requirement extraction (Gemini, catalog reconciliation) | ✅ |
+| Fit Auditor (Gemini score + quantitative roadmap) | ✅ |
+| Two-level retrieval (`find_nearest()` + filter) | ✅ |
 | Match persistence with staged visibility | ✅ |
 | Invite / accept / reject lifecycle | ✅ |
-| Tests (36) with in-memory fake Firestore | ✅ |
+| Tests (36) with in-memory fake Firestore + fake Gemini | ✅ |
 
-**Scope per `docs/backend.md`**: Pub/Sub, Cloud Run, Vertex AI, Gemini, PDF generation,
-and Harvard CV are **deferred** (out of MVP critical path). The three agents run
-deterministically (no model reasoning) — see `services/normalizacion.py` and
-`agents/*.py`.
+**Still deferred**: Pub/Sub async trigger on profile registration (matching runs
+synchronously from `PUT /perfiles/{id}/cv` instead — backlog 2.11, low priority),
+PDF generation, and the Harvard-format CV assistant (backlog Fase 3, low priority).
+Everything else in `docs/rumbo-backlog.md` Fases 0–2 and 4 is implemented as
+specified, including real model reasoning in the three agents — see `agents/*.py`
+and `agents/prompts/*.txt`.
+
+Running the agents/embeddings for real requires a GCP project with Vertex AI
+enabled and valid credentials (see `.env.example`); without that, only the
+CRUD/state-machine parts are testable live, though everything is covered by
+tests via a fake Gemini client (`tests/fakes_gemini.py`).
 
 ---
 
@@ -52,18 +59,18 @@ model-based coordinator agent: the flow is deterministic, so orchestration is
 plain code. Model reasoning is reserved for the three points where semantic
 judgment is actually needed.
 
-### The three agents (MVP: deterministic)
+### The three agents (Gemini reasoning)
 
 | Agent | What it does | When it runs |
 |---|---|---|
-| **Role Classifier** | Decides whether a job post belongs to an existing role or creates a new one (token overlap vs. `roles_normalizados`) | When a job post is created |
-| **Requirement Extractor** | Breaks the description into discrete requirements, matches against `requisitos_normalizados` catalog, creates new ones if needed, updates role frequency table | When a job post is created |
+| **Role Classifier** | Decides whether a job post belongs to an existing role or creates a new one, using semantic judgment (not string matching) against `roles_normalizados` | When a job post is created |
+| **Requirement Extractor** | Breaks the description into discrete requirements, reconciles synonyms against `requisitos_normalizados` catalog, creates new ones if needed, updates role frequency table | When a job post is created |
 | **Fit Auditor** | Computes score + quantitative roadmap comparing resume vs. job post vs. market data (role frequencies) | Once per candidate job post |
 
-### Two-level retrieval (MVP: no embeddings)
+### Two-level retrieval
 
-1. **Level 1** — token-overlap similarity between profile text and
-   `roles_normalizados` (`nombre_normalizado` + `descripcion_consolidada`).
+1. **Level 1** — `find_nearest()` (Firestore vector search) of the profile's
+   embedding against `roles_normalizados` (`descripcion_consolidada`).
 2. **Level 2** — simple filter of `puestos` by `rol_normalizado_id`
    (no vectors, no LLM).
 
@@ -230,7 +237,7 @@ Automatic deployment via Cloud Build:
 ```
 rumbo/
 ├── main.py                  # FastAPI entrypoint + error handlers
-├── agents/                  # 3 agents (deterministic in MVP)
+├── agents/                  # 3 agents (Gemini reasoning)
 │   ├── clasificador_roles.py
 │   ├── extractor_requisitos.py
 │   ├── auditor_fit.py

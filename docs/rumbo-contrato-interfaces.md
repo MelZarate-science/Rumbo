@@ -80,12 +80,16 @@ Cada módulo del backend expone funciones con nombres predecibles — así, quie
 | `services/retrieval.py` | `buscar_puestos_de_roles(roles_ids)` | **Nivel 2**: filtro simple de `puestos` por `rol_normalizado_id`. Devuelve lista de `puesto_id` | ❌ no |
 | `services/invitaciones.py` | `enviar_invitacion(match_id)` / `procesar_respuesta(match_id, aceptar)` | Cambia el `estado` del match y gestiona qué campos se revelan a cada lado | ❌ no |
 | `services/invitaciones.py` | `filtrar_campos_visibles(perfil, estado_match)` | Aplica la regla de visibilidad escalonada sobre un perfil | ❌ no |
-| `services/embeddings.py` | `generar_embedding(texto)` | Devuelve el vector, sin importar si es para un perfil o un rol | ❌ no |
-| `services/normalizacion.py` | `actualizar_frecuencias(rol_id, requisitos_ids)` / `obtener_frecuencias(rol_id)` | Operaciones de lectura/escritura sobre la tabla de frecuencias | ❌ no |
+| `services/embeddings.py` | `generar_embedding(texto)` / `generar_embedding_perfil(perfil_id)` / `generar_embedding_rol(rol_id)` | Genera el embedding (vía `gemini_client`) y lo guarda en Firestore como `Vector` | ❌ no* |
+| `services/normalizacion.py` | `actualizar_frecuencias(rol_id, requisitos_ids_nuevos, requisitos_ids_viejos=None)` / `obtener_frecuencias(rol_id)` | Operaciones de lectura/escritura sobre la tabla de frecuencias. El tercer parámetro (opcional) es para reindexado idempotente cuando un puesto se edita | ❌ no |
 | `services/firestore_client.py` | `obtener(coleccion, doc_id)` / `crear(coleccion, datos)` / `actualizar(coleccion, doc_id, datos)` / `listar(coleccion, filtros)` | Wrappers genéricos, usados por todos los módulos | ❌ no |
+| `services/firestore_client.py` | `guardar_embedding(coleccion, doc_id, campo, valores)` | Envuelve `valores` como `Vector` de Firestore y lo guarda — requerido para que `find_nearest()` funcione | ❌ no |
+| `services/firestore_client.py` | `buscar_vecinos(coleccion, campo_vector, vector, limite=3)` | `find_nearest()` — devuelve los documentos más cercanos por similitud coseno | ❌ no |
+| `services/gemini_client.py` | `generar_json(system_instruction, contents, response_schema, model=None, temperature=0.0)` | Único punto de acceso a Gemini para los 3 agentes: llama al modelo y devuelve la respuesta ya parseada como el modelo Pydantic de `response_schema` | ✅ sí |
+| `services/gemini_client.py` | `generar_embedding_vector(texto, model=None)` | Llamada real a la API de embeddings (Google AI Studio o Vertex AI, según `GEMINI_API_KEY`) | ✅ sí |
 | `services/cv_generator.py` | `generar_cv_harvard(cv_data, busqueda_interes=None)` | Devuelve el texto del CV formateado | ✅ sí |
 
-**Sobre la columna "¿Usa Gemini?":** solo lo que está en `agents/` (más el generador de CV) hace llamadas de razonamiento al modelo. Todo lo demás es determinístico — esa separación es deliberada y es lo que mantiene bajo el costo y la latencia del sistema.
+**Sobre la columna "¿Usa Gemini?":** solo lo que está en `agents/` (más el generador de CV) hace llamadas de *razonamiento* al modelo — decisiones, criterio, texto libre. `services/embeddings.py` sí llama a Gemini por debajo (vía `gemini_client.py`) pero es una transformación mecánica (texto → vector), no una decisión — por eso está marcado con *. Todo lo demás es determinístico — esa separación es deliberada y es lo que mantiene bajo el costo y la latencia del sistema.
 
 **Regla de oro:** nadie llama a Firestore directamente desde un endpoint o un agente — siempre a través de `services/firestore_client.py`. Esto evita que cada integrante escriba su propia forma de leer/escribir la misma colección.
 

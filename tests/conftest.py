@@ -9,8 +9,10 @@ from fastapi.testclient import TestClient
 import services.firestore_client as fc
 from tests.fakes import FAKE_DB, FakeFirestore
 
-# Guardar referencias originales
-_original_client_getter = fc._client
+# Monkey-patch de Gemini: los tests nunca llaman a la API real (sin red, sin
+# credenciales). Ver `tests/fakes_gemini.py` para el criterio del doble de prueba.
+import services.gemini_client as gc
+from tests.fakes_gemini import fake_generar_embedding_vector, fake_generar_json
 
 
 def _fake_client():
@@ -19,6 +21,9 @@ def _fake_client():
 
 fc._client = _fake_client
 fc._CLIENT = FAKE_DB  # type: ignore
+
+gc.generar_json = fake_generar_json
+gc.generar_embedding_vector = fake_generar_embedding_vector
 
 # Ahora importamos la app (que importa routes, que importan firestore_client)
 from main import app

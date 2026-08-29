@@ -140,18 +140,24 @@ class TestInvitaciones:
 
 
 class TestAuditorFit:
+    """
+    Usa el doble de Gemini de `tests/fakes_gemini.py` (ver `tests/conftest.py`):
+    reconoce un requisito como cumplido si sus tokens están en el texto del CV.
+    Los datos de estos tests están armados para que ese criterio dé un
+    resultado inequívoco — no para imitar el juicio real del modelo.
+    """
+
     def test_score_alto_cumple_requisitos(self):
         eid = _crear_empresa_test()
         pid = _crear_perfil_test()
-        # Perfil con Python y FastAPI
-        # Puesto con requisitos claros que coincidan con el perfil
-        pid_puesto = _crear_puesto_test(eid, "Backend Python", "Python FastAPI APIs REST Docker")
+        # Puesto que solo pide justo lo que el perfil ya tiene
+        pid_puesto = _crear_puesto_test(eid, "Python", "Python y FastAPI")
         from pipeline.matching_pipeline import ejecutar_pipeline_matching
         matches = ejecutar_pipeline_matching(pid)
         assert matches
         mid = matches[0]
         match = obtener("matches", mid)
-        assert match["score"] >= 75
+        assert match["score"] == 100
 
     def test_score_bajo_no_cumple(self):
         eid = _crear_empresa_test()
@@ -191,17 +197,20 @@ class TestAuditorFit:
         assert tf_items[0]["sugerencia"] is not None
 
     def test_roadmap_especifico_empresa_true_si_no_en_frecuencias(self):
-        # El extractor crea requisitos nuevos si no están en catálogo
-        # Esos requisitos no tendrán frecuencia en el rol -> especifico=True
+        # Un requisito ya catalogado (Python) no es "específico de esta
+        # empresa"; uno acuñado recién para este puesto (QuasarFramework) sí.
+        from services.firestore_client import crear as _crear
+        _crear("requisitos_normalizados", {"nombre": "Python", "tipo": "herramienta"})
+
         eid = _crear_empresa_test()
         pid = _crear_perfil_test()
-        # Puesto con términos poco comunes -> requisitos nuevos
-        pid_puesto = _crear_puesto_test(eid, "Backend Python", "Python QuasarFramework VitePress")
+        pid_puesto = _crear_puesto_test(eid, "Backend Python", "Python QuasarFramework")
         from pipeline.matching_pipeline import ejecutar_pipeline_matching
         matches = ejecutar_pipeline_matching(pid)
         assert matches
         mid = matches[0]
         match = obtener("matches", mid)
-        roadmap = match["roadmap"]
-        # Los requisitos de QuasarFramework/VitePress son nuevos -> especifico=True
-        assert any(r["especifico_de_esta_empresa"] for r in roadmap)
+        roadmap = {r["nombre"]: r for r in match["roadmap"]}
+
+        assert roadmap["Python"]["especifico_de_esta_empresa"] is False
+        assert roadmap["Quasarframework"]["especifico_de_esta_empresa"] is True

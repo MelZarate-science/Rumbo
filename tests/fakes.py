@@ -10,8 +10,49 @@ Simula la API mínima que usa `services.firestore_client`:
 - where(field, op, value) chaining
 """
 
+import math
 from copy import deepcopy
 from typing import Any
+
+
+def _desenvolver_vectores(data: dict) -> dict:
+    """Convierte `Vector` de Firestore a `list[float]` plana para el fake."""
+    from google.cloud.firestore_v1.vector import Vector
+
+    return {k: (list(v) if isinstance(v, Vector) else v) for k, v in data.items()}
+
+
+def _coseno(a: list[float], b: list[float]) -> float:
+    if not a or not b or len(a) != len(b):
+        return -1.0
+    dot = sum(x * y for x, y in zip(a, b))
+    norma_a = math.sqrt(sum(x * x for x in a))
+    norma_b = math.sqrt(sum(y * y for y in b))
+    if norma_a == 0 or norma_b == 0:
+        return -1.0
+    return dot / (norma_a * norma_b)
+
+
+class _FakeVectorQuery:
+    """Simula `find_nearest()`: ordena por similitud coseno, sin índice real."""
+
+    def __init__(self, collection: "FakeCollection", vector_field: str, query_vector, limit: int):
+        self._collection = collection
+        self._vector_field = vector_field
+        self._query_vector = list(query_vector)
+        self._limit = limit
+
+    def stream(self):
+        candidatos = []
+        for doc in self._collection._docs.values():
+            valor = doc["data"].get(self._vector_field)
+            if not valor:
+                continue
+            similitud = _coseno(list(valor), self._query_vector)
+            candidatos.append((similitud, doc))
+        candidatos.sort(key=lambda c: c[0], reverse=True)
+        for _, doc in candidatos[: self._limit]:
+            yield FakeDocumentSnapshot(doc["_id"], doc["data"])
 
 
 class _FakeQuery:
@@ -74,12 +115,12 @@ class FakeDocumentRef:
     def set(self, data: dict) -> None:
         if self._id is None:
             raise ValueError("DocumentRef sin ID no puede hacer set")
-        self._collection._docs[self._id] = {"_id": self._id, "data": deepcopy(data)}
+        self._collection._docs[self._id] = {"_id": self._id, "data": deepcopy(_desenvolver_vectores(data))}
 
     def update(self, data: dict) -> None:
         if self._id is None or self._id not in self._collection._docs:
             raise KeyError(f"Documento {self._id} no existe para update")
-        self._collection._docs[self._id]["data"].update(deepcopy(data))
+        self._collection._docs[self._id]["data"].update(deepcopy(_desenvolver_vectores(data)))
 
 
 class FakeCollection:
@@ -97,6 +138,9 @@ class FakeCollection:
 
     def where(self, field: str, op: str, value: Any) -> _FakeQuery:
         return _FakeQuery(self).where(field, op, value)
+
+    def find_nearest(self, vector_field: str, query_vector, limit: int, distance_measure=None, **kwargs) -> _FakeVectorQuery:
+        return _FakeVectorQuery(self, vector_field, query_vector, limit)
 
     def stream(self):
         for doc in self._docs.values():

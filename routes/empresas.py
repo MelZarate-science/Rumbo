@@ -6,7 +6,7 @@ GET  /empresas/{empresa_id}               -> devuelve empresa (1.4)
 PUT  /empresas/{empresa_id}               -> edita empresa (1.4)
 POST /empresas/{empresa_id}/puestos       -> carga puesto + dispara indexado (1.5)
 GET  /empresas/{empresa_id}/puestos       -> lista puestos (1.5)
-GET  /empresas/{empresa_id}/matches       -> matches de la empresa (visibilidad perfil filtrada)
+GET  /empresas/{empresa_id}/mapa-perfiles -> matches de la empresa, ?puesto_id= opcional (4.1)
 """
 from datetime import UTC, datetime
 
@@ -102,11 +102,12 @@ def listar_puestos_empresa(empresa_id: str):
     return puestos
 
 
-@router.get("/{empresa_id}/matches")
-def listar_matches_empresa(empresa_id: str):
+@router.get("/{empresa_id}/mapa-perfiles")
+def mapa_perfiles_empresa(empresa_id: str, puesto_id: str | None = None):
     """
-    Lista los matches de los puestos de la empresa.
+    Mapa de perfiles afines a los puestos de la empresa (backlog 4.1).
 
+    `puesto_id` (opcional): acota el mapa a los matches de ese puesto puntual.
     Respuesta: perfiles con visibilidad filtrada según estado del match
     (apellido/email/telefono solo si confirmado).
     """
@@ -114,9 +115,11 @@ def listar_matches_empresa(empresa_id: str):
     if data is None:
         _error(status.HTTP_404_NOT_FOUND, "Empresa no encontrada", "EMPRESA_NO_ENCONTRADA")
 
-    # Obtener puestos de la empresa
-    puestos = listar("puestos", {"empresa_id": empresa_id, "activo": True})
-    puesto_ids = [p["_document_id"] for p in puestos]
+    if puesto_id is not None:
+        puesto_ids = [puesto_id]
+    else:
+        puestos = listar("puestos", {"empresa_id": empresa_id, "activo": True})
+        puesto_ids = [p["_document_id"] for p in puestos]
 
     if not puesto_ids:
         return []
