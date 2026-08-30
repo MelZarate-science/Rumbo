@@ -2,11 +2,14 @@
 
 *"Rumbo" — Spanish for "course" or "direction."*
 
-A matching platform between professional profiles and companies, where a
-multi-agent system audits real fit between both sides — and neither side
-sees the other until there is explicit consent.
+A matching platform for professional profiles and companies, where a
+sequential multi-agent system audits real fit between both sides — and
+neither side sees the other until there is explicit, staged consent.
 
 **All Things Agentic Hackathon 2026 — Track: The Taskmaster**
+
+**Live app:** https://rumbo-dev-25592102293.us-central1.run.app/app/
+**Health check:** https://rumbo-dev-25592102293.us-central1.run.app/health
 
 ---
 
@@ -15,87 +18,92 @@ sees the other until there is explicit consent.
 - **The profile** uploads a resume and, as soon as they sign in, sees the
   most relevant job posts with a fit score and a roadmap of what's missing —
   no searching, and without knowing which company posted them.
-- **The company** provides its context and job post descriptions, and receives
-  a map of matching profiles — without last names or contact details.
+- **The company** provides its context and job post descriptions, and
+  receives a map of matching profiles — without last names or contact
+  details.
 - **Reveal is staged**: the company manually invites, the profile accepts,
   and only then are identifying details shared.
 
+Matching supports human decisions; it does not make hiring decisions
+automatically.
+
 ---
 
-## MVP Status (Backend)
+## Status
 
-✅ **Fully functional backend** — all core flows implemented and tested:
+**Fully implemented and validated end-to-end against the live Cloud Run
+deployment** — this is not a scaffold. All three agents run real Gemini
+reasoning (no deterministic/keyword fallback), and the full flow
+(registration → matching → invitation → opt-in → staged disclosure) has
+been run repeatedly against production with no manual intervention.
 
 | Feature | Status |
 |---|---|
-| Auth (password + session token, backlog 1.1) | ✅ |
+| Auth (password + session token) | ✅ |
 | Profile CRUD + CV data | ✅ |
 | Company & job post CRUD | ✅ |
-| Role classification (Gemini) | ✅ |
-| Requirement extraction (Gemini, catalog reconciliation) | ✅ |
-| Fit Auditor (Gemini score + quantitative roadmap) | ✅ |
-| Two-level retrieval (`find_nearest()` + filter) | ✅ |
+| Role Classifier agent (real Gemini reasoning via ADK) | ✅ |
+| Requirement Extractor agent (real Gemini reasoning via ADK) | ✅ |
+| Fit Auditor agent (real Gemini reasoning via ADK) | ✅ |
+| Embedding pre-filter before every agent call (cost control) | ✅ |
+| Two-level retrieval (`find_nearest()` + filter, with a similarity floor) | ✅ |
 | Match persistence with staged visibility | ✅ |
 | Invite / accept / reject lifecycle | ✅ |
 | Tests (50) with in-memory fake Firestore + fake Gemini | ✅ |
 
-**Still deferred**: Pub/Sub async trigger on profile registration (matching runs
-synchronously from `PUT /perfiles/{id}/cv` instead — backlog 2.11, low priority),
-PDF generation, and the Harvard-format CV assistant (backlog Fase 3, low priority).
-Everything else in `docs/rumbo-backlog.md` Fases 0–2 and 4 is implemented as
-specified, including real model reasoning in the three agents — see `agents/*.py`
-and `agents/prompts/*.txt`.
-
-Running the agents/embeddings for real requires a GCP project with Vertex AI
-enabled and valid credentials (see `.env.example`); without that, only the
-CRUD/state-machine parts are testable live, though everything is covered by
-tests via a fake Gemini client (`tests/fakes_gemini.py`).
+**Deferred (documented, not blocking)**: async triggering via Pub/Sub —
+matching runs synchronously inside the API request instead
+(`PUT /perfiles/{id}/cv`); PDF resume parsing and the Harvard-format CV
+generator. See `docs/rumbo-backlog.md` for the full backlog and priority.
 
 ---
 
 ## Architecture
 
 A **sequential multi-agent system** with two human checkpoints. There is no
-model-based coordinator agent: the flow is deterministic, so orchestration is
-plain code. Model reasoning is reserved for the three points where semantic
-judgment is actually needed.
+model-based coordinator agent: the flow is deterministic, so orchestration
+is plain code. Model reasoning (Gemini 3.5 Flash, via Google ADK on Vertex
+AI) is reserved for the three points where semantic judgment is actually
+needed.
 
-### The three agents (Gemini reasoning)
+### The three agents
 
 | Agent | What it does | When it runs |
 |---|---|---|
-| **Role Classifier** | Decides whether a job post belongs to an existing role or creates a new one, using semantic judgment (not string matching) against `roles_normalizados` | When a job post is created |
-| **Requirement Extractor** | Breaks the description into discrete requirements, reconciles synonyms against `requisitos_normalizados` catalog, creates new ones if needed, updates role frequency table | When a job post is created |
-| **Fit Auditor** | Computes score + quantitative roadmap comparing resume vs. job post vs. market data (role frequencies) | Once per candidate job post |
+| **Role Classifier** | Decides whether a job post belongs to an existing normalized role or creates a new one — pre-filters candidates by embedding first, then lets Gemini judge semantic equivalence only among that short list | When a job post is created or edited |
+| **Requirement Extractor** | Extracts discrete requirements from the description, then reconciles them against the catalog in cascade: exact string match (free) → embedding shortlist (cheap) → Gemini only for what's still ambiguous (one batched call) | When a job post is created or edited |
+| **Fit Auditor** | Computes a score and a quantitative roadmap comparing the resume against the job post and against how common each requirement is across the role (market frequency, derived live — not a stored flag) | Once per candidate job post |
+
+The embedding pre-filter exists so cost and latency stay flat as the
+catalog of roles/requirements grows, instead of sending the entire catalog
+to Gemini on every call.
 
 ### Two-level retrieval
 
-1. **Level 1** — `find_nearest()` (Firestore vector search) of the profile's
-   embedding against `roles_normalizados` (`descripcion_consolidada`).
+1. **Level 1** — `find_nearest()` (Firestore native vector search) of the
+   profile's embedding against `roles_normalizados`, with a minimum
+   similarity floor (calibrated against real embeddings, not guessed) so a
+   profile with no real overlap doesn't get forced matches.
 2. **Level 2** — simple filter of `puestos` by `rol_normalizado_id`
-   (no vectors, no LLM).
+   (no vectors, no LLM cost).
 
-Only over that narrowed set does the Auditor run. This avoids comparing a
-profile against twenty near-identical "Product Manager" postings.
+Only over that narrowed set does the Fit Auditor run.
 
 ![Architecture](docs/architecture-diagram-en.png)
 
 ---
 
-## Stack (MVP)
+## Stack
 
 | Component | Technology |
 |---|---|
+| Model | Gemini 3.5 Flash, via Vertex AI (required to run in the `global` location for this project) |
+| Agent framework | Google ADK (`LlmAgent` + `InMemoryRunner`) |
 | API | FastAPI (Python 3.12+) |
-| Database | Firestore (emulator for local dev) |
-| Testing | pytest + httpx + in-memory FakeFirestore |
-| Agents | Deterministic Python (no Vertex AI / ADK in MVP) |
+| Database | Firestore, native mode, with native vector search |
+| Compute | Cloud Run (single service serves both the API and the React build) |
 | Validation | Pydantic v2 |
-
-> **Nota**: `google-cloud-pubsub` está en `requirements.txt` para el disparo
-> asíncrono (backlog 2.11), diferido por prioridad — hoy el matching corre
-> síncrono. `google-genai` (Gemini) y los embeddings sí se usan de verdad
-> en el MVP — ver `backend/services/gemini_client.py`.
+| Frontend | React + Vite, mounted at `/app/` on the same Cloud Run service |
 
 ---
 
@@ -104,13 +112,16 @@ profile against twenty near-identical "Product Manager" postings.
 ### 1. Prerequisites
 
 - Python 3.12+
-- (Opcional) `gcloud` CLI si quieres usar el emulador de Firestore local
+- Node 18+ (only if you want to rebuild the frontend)
+- A Google Cloud project with Vertex AI and Firestore (native mode) enabled
+- (Optional) `gcloud` CLI, if you want the local Firestore emulator instead
+  of a real project
 
 ### 2. Clone and install
 
 ```bash
-git clone <REPO-URL>
-cd rumbo
+git clone https://github.com/MelZarate-science/Rumbo.git
+cd Rumbo
 
 python -m venv .venv
 source .venv/bin/activate        # on Windows: .venv\Scripts\activate
@@ -124,26 +135,27 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Fill in `.env` with your project's values. **The real `.env` is never committed.**
+Fill in `.env` with your project's values (see `.env.example` for what each
+one does). **The real `.env` is never committed.**
 
-**Para desarrollo SIN credenciales GCP** (usa el emulador de Firestore):
+To run against the local Firestore emulator instead of a real project:
 
 ```bash
-# Terminal 1: levantar emulador
+# Terminal 1: start the emulator
 gcloud emulators firestore start --host-port=localhost:8080
 
-# Terminal 2: exportar variable y correr la app
+# Terminal 2: export the variable and run the app
 export FIRESTORE_EMULATOR_HOST=localhost:8080
 uvicorn main:app --reload --port 8080
 ```
 
-El SDK de Firestore detecta `FIRESTORE_EMULATOR_HOST` automáticamente.
+The Firestore SDK detects `FIRESTORE_EMULATOR_HOST` automatically.
 
-**Índices vectoriales requeridos** (contra Firestore real, no el emulador): sin
-esto, `find_nearest()` falla con `Missing vector index configuration`. Se crean
-una sola vez por proyecto -- uno para el retrieval Nivel 1 (perfil → rol) y
-otro para el pre-filtro por embedding que usan los Agentes 1 y 2 al clasificar
-un puesto nuevo (ver `Auditoria-Rumbo-Normalizacion.md`, fuera del repo):
+**Required vector indexes** (against real Firestore, not the emulator):
+without these, `find_nearest()` fails with `Missing vector index
+configuration`. Created once per project — one for profile-to-role
+retrieval, one for the embedding pre-filter the agents use when
+classifying a new job post:
 
 ```bash
 gcloud firestore indexes composite create \
@@ -159,7 +171,10 @@ gcloud firestore indexes composite create \
   --field-config=field-path=embedding,vector-config='{"dimension":"1536","flat":"{}"}'
 ```
 
-Tarda unos minutos en pasar a estado `READY` (`gcloud firestore indexes composite list` para chequear). Si `gcloud` da problemas de quoting en Windows/PowerShell con el JSON de `vector-config`, se puede crear por API en su lugar con `google.cloud.firestore_admin_v1.FirestoreAdminClient().create_index(...)`.
+Takes a few minutes to reach `READY` (`gcloud firestore indexes composite
+list` to check). If `gcloud` gives you quoting trouble on Windows/PowerShell
+with the `vector-config` JSON, you can create the index via API instead with
+`google.cloud.firestore_admin_v1.FirestoreAdminClient().create_index(...)`.
 
 ### 4. Run tests (no GCP needed)
 
@@ -167,17 +182,21 @@ Tarda unos minutos en pasar a estado `READY` (`gcloud firestore indexes composit
 python -m pytest tests/ -v
 ```
 
-Todos los tests usan `tests/fakes.py` (FakeFirestore en memoria), así que
-**no requieren credenciales ni emulador**.
+All 50 tests use `tests/fakes.py` (an in-memory Firestore) and
+`tests/fakes_gemini.py` (a deterministic double for Gemini), so **no
+credentials or emulator are required** to run them.
 
-### 5. Seed sample data (requiere emulador o GCP real)
+### 5. Seed sample data (requires the emulator or a real GCP project)
 
 ```bash
-export FIRESTORE_EMULATOR_HOST=localhost:8080  # o usa tu proyecto GCP real
+export FIRESTORE_EMULATOR_HOST=localhost:8080  # or use your real GCP project
 python -m scripts.seed_data
 ```
 
-Crea 6 perfiles variados, 4 empresas, 7 puestos y ejecuta matching.
+Creates 6 profiles, 6 companies with 9 job posts (with a couple of
+deliberately overlapping roles across different companies, to exercise the
+role-normalization logic), and runs real matching for every profile. Every
+seeded account uses the password `rumbo2026`.
 
 ### 6. Verify
 
@@ -188,63 +207,81 @@ curl http://localhost:8080/health
 
 ---
 
-## API Endpoints (MVP)
+## Try it live
 
-### Perfiles
-| Method | Path | Descripción |
-|---|---|---|
-| POST | `/perfiles` | Crear perfil |
-| GET | `/perfiles/{id}` | Obtener perfil (vista propietario) |
-| PUT | `/perfiles/{id}` | Editar datos personales |
-| PUT | `/perfiles/{id}/cv` | Cargar/actualizar `cv_data` + **dispara matching** |
-| GET | `/perfiles/{id}/matches` | Matches del perfil (empresa oculta si `pendiente`) |
+The deployed app already has seed data loaded. Two accounts to try, both
+with password `rumbo2026`:
 
-### Empresas
-| Method | Path | Descripción |
-|---|---|---|
-| POST | `/empresas` | Crear empresa |
-| GET | `/empresas/{id}` | Obtener empresa |
-| PUT | `/empresas/{id}` | Editar empresa |
-| POST | `/empresas/{id}/puestos` | Crear puesto + **indexado automático** |
-| GET | `/empresas/{id}/puestos` | Listar puestos activos |
-| GET | `/empresas/{id}/matches` | Matches de la empresa (perfil filtrado según estado) |
+- **Profile**: `ana.garcia@email.com` (has several existing matches, good
+  for seeing the fit score and roadmap)
+- **Company**: `talento@technova.io` (has job posts loaded, good for seeing
+  the profile map and the invite flow)
 
-### Puestos
-| Method | Path | Descripción |
-|---|---|---|
-| GET | `/puestos/{id}` | Obtener puesto |
-| PUT | `/puestos/{id}` | Editar puesto (re-indexa si cambia título/descripción) |
-
-### Matches (opt-in flow)
-| Method | Path | Descripción |
-|---|---|---|
-| GET | `/matches/{id}` | Match con visibilidad según estado |
-| POST | `/matches/{id}/invitar` | **Empresa** invita (`pendiente` → `notificado`) |
-| POST | `/matches/{id}/responder` | **Perfil** responde (`notificado` → `confirmado` / `rechazado`) |
-
-**Body `responder`**: `{"aceptar": true|false}`
+When logging in, make sure the correct tab ("I'm a profile" / "I'm a
+company") is selected before typing the email — it defaults to "profile."
 
 ---
 
-## Visibilidad escalonada (regla del MVP)
+## API Endpoints
 
-| Estado | Perfil ve empresa | Empresa ve apellido/email/teléfono |
+### Auth
+| Method | Path | Description |
 |---|---|---|
-| `pendiente` | ❌ (solo `empresa_id`) | ❌ |
-| `notificado` | ✅ (nombre empresa) | ❌ |
+| POST | `/auth/login` | `{email, password, tipo}` → `{token, id, tipo}` |
+
+### Profiles
+| Method | Path | Description |
+|---|---|---|
+| POST | `/perfiles` | Create profile (also logs in) |
+| GET | `/perfiles/{id}` | Get profile (owner view) |
+| PUT | `/perfiles/{id}` | Edit personal data |
+| PUT | `/perfiles/{id}/cv` | Load/update `cv_data` + **triggers matching** |
+| GET | `/perfiles/{id}/matches` | Profile's matches (company hidden while `pendiente`) |
+
+### Companies
+| Method | Path | Description |
+|---|---|---|
+| POST | `/empresas` | Create company (also logs in) |
+| GET | `/empresas/{id}` | Get company |
+| PUT | `/empresas/{id}` | Edit company |
+| POST | `/empresas/{id}/puestos` | Create job post + **triggers indexing** (classification + requirement extraction) |
+| GET | `/empresas/{id}/puestos` | List active job posts |
+| GET | `/empresas/{id}/mapa-perfiles` | Company's matching profiles (profile fields filtered by match state) |
+
+### Job posts
+| Method | Path | Description |
+|---|---|---|
+| GET | `/puestos/{id}` | Get job post |
+| PUT | `/puestos/{id}` | Edit job post (re-indexes if title/description changes) |
+
+### Matches (opt-in flow)
+| Method | Path | Description |
+|---|---|---|
+| GET | `/matches/{id}` | Match with visibility filtered by current state |
+| POST | `/matches/{id}/invitar` | **Company** invites (`pendiente` → `notificado`) |
+| POST | `/matches/{id}/responder` | **Profile** responds, body `{"aceptar": true\|false}` (`notificado` → `confirmado` / `rechazado`) |
+
+---
+
+## Staged visibility (product rule)
+
+| State | Profile sees company | Company sees last name/email/phone |
+|---|---|---|
+| `pendiente` | ❌ (only `empresa_id`) | ❌ |
+| `notificado` | ✅ (company name) | ❌ |
 | `confirmado` | ✅ | ✅ |
 | `rechazado` | ✅ | ❌ |
 
-La lógica vive en `backend/services/invitaciones.py` (`filtrar_campos_visibles`,
-`es_empresa_visible`).
+Logic lives in `backend/services/invitaciones.py`
+(`filtrar_campos_visibles`, `es_empresa_visible`).
 
 ---
 
 ## Deploying to Cloud Run
 
-Copiá `.env` a un archivo YAML (mismos nombres de variable, sin comillas de más)
-y usá `--env-vars-file` — es más confiable que `--set-env-vars` cuando algún
-valor tiene caracteres especiales (ej. `FIRESTORE_DATABASE_ID=(default)`):
+Copy `.env` into a YAML file (same variable names, no extra quoting) and use
+`--env-vars-file` — more reliable than `--set-env-vars` when a value has
+special characters (e.g. `FIRESTORE_DATABASE_ID=(default)`):
 
 ```bash
 gcloud run deploy rumbo-dev \
@@ -255,19 +292,20 @@ gcloud run deploy rumbo-dev \
   --env-vars-file=env.yaml
 ```
 
-Variables mínimas que necesita el servicio: `GOOGLE_CLOUD_PROJECT`,
-`GOOGLE_GENAI_USE_VERTEXAI=True`, `GOOGLE_CLOUD_LOCATION`,
-`FIRESTORE_DATABASE_ID`, `GEMINI_MODEL_FLASH`, `GEMINI_EMBEDDING_MODEL`,
-`AUTH_SECRET_KEY`, `UMBRAL_FIT_MINIMO` — ver `.env.example`. `GEMINI_API_KEY`
-es opcional y solo hace falta si en algún momento se quiere forzar la capa
-gratuita de Google AI Studio en vez de Vertex AI (ver `services/gemini_client.py`);
-dejarla vacía es lo esperado en este proyecto. El frontend queda servido en
+Minimum variables the service needs: `GOOGLE_CLOUD_PROJECT`,
+`GOOGLE_GENAI_USE_VERTEXAI=True`, `GOOGLE_CLOUD_LOCATION=global`,
+`VERTEX_AI_LOCATION=global`, `FIRESTORE_DATABASE_ID`, `GEMINI_MODEL_FLASH`,
+`GEMINI_EMBEDDING_MODEL`, `AUTH_SECRET_KEY`, `UMBRAL_FIT_MINIMO` — see
+`.env.example`. `GOOGLE_CLOUD_LOCATION`/`VERTEX_AI_LOCATION` must be
+`global`: as of this writing, Gemini 3.5 is only served in the `global`
+Vertex AI endpoint for this project, not in regional endpoints like
+`us-central1`. `GEMINI_API_KEY` is optional and only needed to force the
+free Google AI Studio tier instead of Vertex AI; leaving it empty (the
+default) is what this project uses. The frontend is served at
 `<service-url>/app/`.
 
-Deploy automático vía Cloud Build todavía no está configurado (backlog 0.9) —
-por ahora el deploy es manual con el comando de arriba, contra la rama `Dev`
-en GitHub (que es la rama de integración real del equipo, más allá de que
-`develop` exista como nombre en el repo).
+Automatic deployment via Cloud Build is not configured yet — deploys are
+manual, against the `Dev`/`main` branches in GitHub.
 
 ---
 
@@ -275,49 +313,53 @@ en GitHub (que es la rama de integración real del equipo, más allá de que
 
 ```
 rumbo/
-├── main.py                  # FastAPI entrypoint + error handlers
-├── agents/                  # 3 agents (Gemini reasoning)
-│   ├── clasificador_roles.py
-│   ├── extractor_requisitos.py
-│   ├── auditor_fit.py
-│   └── prompts/             # stubs (not used in MVP)
-├── pipeline/
-│   └── matching_pipeline.py # plain-code orchestration
-├── services/                # logic with no model reasoning
-│   ├── firestore_client.py  # single access point to Firestore
-│   ├── embeddings.py        # disabled in MVP (logs warning)
-│   ├── retrieval.py         # 2-level retrieval (token overlap)
-│   ├── normalizacion.py     # text utils + frecuencia helpers
-│   ├── invitaciones.py      # match lifecycle + staged visibility
-│   └── cv_generator.py      # stub (Fase 3)
-├── models/                  # one Pydantic class per collection
-├── routes/                  # HTTP endpoints
-├── scripts/seed_data.py     # reproducible seed (6 perfiles, 4 empresas)
-├── tests/
-│   ├── conftest.py          # FakeFirestore + TestClient fixtures
-│   ├── fakes.py             # in-memory Firestore implementation
-│   ├── test_routes_perfiles.py
-│   ├── test_routes_empresas.py
-│   ├── test_routes_matches.py
-│   └── test_services.py     # invitaciones + auditor_fit
+├── main.py                       # one-line wrapper: `from backend.main import app`,
+│                                  # so `uvicorn main:app` keeps working after the
+│                                  # backend was moved into backend/
+├── agents/                       # the 3 agents that use real Gemini reasoning
+│   ├── clasificador_roles.py     # Agent 1 — Role Classifier
+│   ├── extractor_requisitos.py   # Agent 2 — Requirement Extractor
+│   ├── auditor_fit.py            # Agent 3 — Fit Auditor
+│   └── prompts/                  # system prompts, one file per agent/step
+├── backend/                      # FastAPI: routes, models, services, real entrypoint
+│   ├── main.py                   # actual entrypoint (mounts routes + the frontend build)
+│   ├── pipeline/matching_pipeline.py  # plain-code orchestration, not an agent
+│   ├── services/                 # logic with no model reasoning
+│   │   ├── firestore_client.py   # single access point to Firestore
+│   │   ├── gemini_client.py      # single access point to Gemini
+│   │   ├── embeddings.py         # embedding generation (profiles, roles, requirements)
+│   │   ├── retrieval.py          # two-level retrieval
+│   │   ├── normalizacion.py      # role frequency table (transactional)
+│   │   ├── invitaciones.py       # match lifecycle + staged visibility
+│   │   ├── auth.py                # password hashing + session tokens
+│   │   └── cv_generator.py       # Harvard-format CV (not implemented yet)
+│   ├── models/                   # one Pydantic class per collection
+│   └── routes/                   # HTTP endpoints
+├── frontend/                     # React + Vite, served from the same Cloud Run service
+├── scripts/seed_data.py          # reproducible seed data
+├── tests/                        # 50 tests, fake Firestore + fake Gemini
 └── docs/
-    ├── backend.md           # MVP roadmap (this implementation)
-    ├── rumbo-contrato-interfaces.md
-    ├── rumbo-schema-bd.md
-    ├── rumbo-backlog.md
-    ├── rumbo-flujo-trabajo.md
-    └── rumbo-spec-tecnico.md
+    ├── architecture-diagram-en.png
+    ├── rumbo-contrato-interfaces.md   # endpoint/field naming contract
+    ├── rumbo-schema-bd.md             # Firestore schema, collection by collection
+    ├── rumbo-backlog.md               # full task backlog with priorities
+    ├── rumbo-flujo-trabajo.md         # team workflow (branches, commits, credentials)
+    └── rumbo-spec-tecnico.md          # technical spec / design rationale
 ```
 
 ---
 
 ## Team rules
 
-- No one pushes directly to `main` or `develop`. Every change starts on a
-  `feature/<task-id>-<description>` branch against `develop`.
-- No one calls Firestore outside of `backend/services/firestore_client.py`.
-- Field, endpoint, and function names are fixed in the interface contract.
-  If a new one is needed, it's added there first and the team is notified.
+- No one pushes directly to `main` or `Dev`. Every change starts on a
+  `feature/<description>` branch.
+- No one calls Firestore outside of `backend/services/firestore_client.py`,
+  or Gemini outside of `backend/services/gemini_client.py`.
+- Field, endpoint, and function names are fixed in
+  `docs/rumbo-contrato-interfaces.md`. If a new one is needed, it's added
+  there first.
 - No credentials in code or in commits.
 
-See the full team documentation in `docs/` for details.
+See the full team documentation in `docs/` for details (in Spanish — the
+team's working language; this README and the submission materials are in
+English per the contest rules).
