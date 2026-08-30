@@ -1,39 +1,68 @@
-import { createContext, useContext, useState, useCallback } from 'react';
-import { api, guardarSesion, leerSesion, limpiarSesion } from '../api';
+import { createContext, useContext, useEffect, useState } from 'react';
+import { api } from '../api';
 
 const AuthContext = createContext(null);
 
+function buildSession(data) {
+  if (!data?.id || !data?.tipo) return null;
+  return { id: data.id, tipo: data.tipo };
+}
+
 export function AuthProvider({ children }) {
-  const [sesion, setSesion] = useState(() => leerSesion());
+  const [sesion, setSesion] = useState(null);
+  const [cargandoSesion, setCargandoSesion] = useState(true);
 
-  const login = useCallback(async (email, password, tipo) => {
+  useEffect(() => {
+    let activa = true;
+
+    async function bootstrap() {
+      try {
+        const data = await api('/auth/session');
+        if (activa) setSesion(buildSession(data));
+      } catch {
+        if (activa) setSesion(null);
+      } finally {
+        if (activa) setCargandoSesion(false);
+      }
+    }
+
+    bootstrap();
+    return () => {
+      activa = false;
+    };
+  }, []);
+
+  async function login(email, password, tipo) {
     const data = await api('/auth/login', { method: 'POST', body: { email, password, tipo } });
-    guardarSesion(data.tipo, data.id, data.token);
-    setSesion({ tipo: data.tipo, id: data.id, token: data.token });
+    const nextSession = buildSession(data);
+    setSesion(nextSession);
     return data;
-  }, []);
+  }
 
-  const registrarPerfil = useCallback(async (datos) => {
+  async function registrarPerfil(datos) {
     const data = await api('/perfiles', { method: 'POST', body: datos });
-    guardarSesion('perfil', data.perfil_id, data.token);
-    setSesion({ tipo: 'perfil', id: data.perfil_id, token: data.token });
+    const nextSession = buildSession({ id: data.perfil_id, tipo: data.tipo });
+    setSesion(nextSession);
     return data;
-  }, []);
+  }
 
-  const registrarEmpresa = useCallback(async (datos) => {
+  async function registrarEmpresa(datos) {
     const data = await api('/empresas', { method: 'POST', body: datos });
-    guardarSesion('empresa', data.empresa_id, data.token);
-    setSesion({ tipo: 'empresa', id: data.empresa_id, token: data.token });
+    const nextSession = buildSession({ id: data.empresa_id, tipo: data.tipo });
+    setSesion(nextSession);
     return data;
-  }, []);
+  }
 
-  const logout = useCallback(() => {
-    limpiarSesion();
-    setSesion(null);
-  }, []);
+  async function logout() {
+    try {
+      await api('/auth/logout', { method: 'POST' });
+    } finally {
+      setSesion(null);
+    }
+  }
 
   return (
-    <AuthContext.Provider value={{ sesion, login, registrarPerfil, registrarEmpresa, logout }}>
+    <AuthContext.Provider value={{ sesion, cargandoSesion, login, registrarPerfil, registrarEmpresa, logout }}>
       {children}
     </AuthContext.Provider>
   );

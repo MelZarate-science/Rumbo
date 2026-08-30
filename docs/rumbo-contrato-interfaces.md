@@ -34,39 +34,41 @@
 
 | Método | Endpoint | Body / Params | Responde | Tarea backlog |
 |---|---|---|---|---|
-| `POST` | `/auth/login` | `{email, password, tipo: "perfil" \| "empresa"}` | `{token, id, tipo}` | 1.1 |
+| `POST` | `/auth/login` | `{email, password, tipo: "perfil" \| "empresa"}` | `Set-Cookie: rumbo_session=...` + `{id, tipo}` | 1.1 |
+| `POST` | `/auth/logout` | — | Limpia la cookie de sesión | 1.1 |
+| `GET` | `/auth/session` | — | `{id, tipo}` | 1.1 |
 
-El registro (`POST /perfiles` / `POST /empresas`) ya devuelve `token` en la
-misma respuesta — es login automático al crear la cuenta, no hace falta
-loguearse aparte después de registrarse. El token va en
-`Authorization: Bearer <token>` en cada endpoint que lo exige (ver columna
-"Requiere sesión" abajo). Formato del token: HMAC firmado con
+El registro (`POST /perfiles` / `POST /empresas`) abre sesión en la misma
+respuesta mediante cookie `HttpOnly`, así que no hace falta loguearse aparte
+después de registrarse. La sesión viaja por cookie `rumbo_session`; para
+compatibilidad interna y tests, `usuario_actual(...)` también acepta
+`Authorization: Bearer <token>`. Formato del token: HMAC firmado con
 `AUTH_SECRET_KEY`, expira a los 7 días — ver `backend/services/auth.py`.
 
 ### Perfiles
 
 | Método | Endpoint | Body / Params | Responde | Requiere sesión | Tarea backlog |
 |---|---|---|---|---|---|
-| `POST` | `/perfiles` | `{nombre, apellido, email, password, telefono?}` | `{perfil_id, token, ...}` | No | 1.2, 1.1 |
-| `GET` | `/perfiles/{perfil_id}` | — | Documento completo del perfil (sin `password_hash`) | No | 1.2 |
+| `POST` | `/perfiles` | `{nombre, apellido, email, password, telefono?}` | `Set-Cookie: rumbo_session=...` + `{perfil_id, tipo, ...}` | No | 1.2, 1.1 |
+| `GET` | `/perfiles/{perfil_id}` | — | Documento completo del perfil (sin `password_hash`) | Sí (dueño) | 1.2 |
 | `PUT` | `/perfiles/{perfil_id}` | `{nombre?, apellido?, email?, telefono?}` | Perfil actualizado | Sí (dueño) | 1.2 |
 | `PUT` | `/perfiles/{perfil_id}/cv` | `{cv_data: {experiencia, formacion, habilidades, proyectos}}` | `{perfil, matches_creados}` — al guardar, se regenera el `embedding` del perfil | Sí (dueño) | 1.3 |
 | `POST` | `/perfiles/{perfil_id}/cv/pdf` | `{}` (usa el `cv_texto_original` ya cargado) | El texto extraído, mapeado a `cv_data` | 3.1 |
 | `POST` | `/perfiles/{perfil_id}/cv/generar` | `{busqueda_interes: string opcional}` | `{cv_generado_harvard: string}` | 3.2, 3.3 |
 | `GET` | `/perfiles/{perfil_id}/cv/descargar` | — | Archivo PDF | 3.4 |
-| `GET` | `/perfiles/{perfil_id}/matches` | — | Lista de `matches` del perfil, con `titulo`, `score`, `roadmap` (array de maps, ver esquema) — **nunca** `nombre_empresa` salvo que el `match` esté en estado `notificado` o posterior | 2.12 |
+| `GET` | `/perfiles/{perfil_id}/matches` | — | Lista de `matches` del perfil, con `titulo`, `score`, `roadmap` (array de maps, ver esquema) — **nunca** `nombre_empresa` salvo que el `match` esté en estado `notificado` o posterior | Sí (dueño) | 2.12 |
 
 ### Empresas y puestos
 
 | Método | Endpoint | Body / Params | Responde | Requiere sesión | Tarea backlog |
 |---|---|---|---|---|---|
-| `POST` | `/empresas` | `{nombre_empresa, contexto, email_registro, password}` | `{empresa_id, token, ...}` | No | 1.4, 1.1 |
-| `GET` | `/empresas/{empresa_id}` | — | Documento completo de la empresa (sin `password_hash`) | No | 1.4 |
+| `POST` | `/empresas` | `{nombre_empresa, contexto, email_registro, password}` | `Set-Cookie: rumbo_session=...` + `{empresa_id, tipo, ...}` | No | 1.4, 1.1 |
+| `GET` | `/empresas/{empresa_id}` | — | Documento completo de la empresa (sin `password_hash`) | Sí (dueña) | 1.4 |
 | `PUT` | `/empresas/{empresa_id}` | `{nombre_empresa?, contexto?}` | Empresa actualizada | Sí (dueña) | 1.4 |
 | `POST` | `/empresas/{empresa_id}/puestos` | `{titulo, descripcion}` | `{puesto_id, ...}` | Sí (empresa dueña) | 1.5 |
-| `GET` | `/empresas/{empresa_id}/puestos` | — | Lista de puestos de esa empresa | No | 1.5 |
+| `GET` | `/empresas/{empresa_id}/puestos` | — | Lista de puestos de esa empresa | Sí (dueña) | 1.5 |
 | `PUT` | `/puestos/{puesto_id}` | `{titulo?, descripcion?, activo?}` | Puesto actualizado — si cambia `descripcion`, se vuelve a correr la clasificación y extracción de requisitos | Sí (empresa dueña) | 1.5 |
-| `GET` | `/empresas/{empresa_id}/mapa-perfiles` | `?puesto_id=` (opcional) | Lista de `matches` con `nombre` (sin apellido), `score`, `cv_data` — nunca `apellido`, `email`, `telefono` salvo `estado = confirmado` | No | 4.1 |
+| `GET` | `/empresas/{empresa_id}/mapa-perfiles` | `?puesto_id=` (opcional) | Lista de `matches` con `nombre` (sin apellido), `score`, `cv_data` — nunca `apellido`, `email`, `telefono` salvo `estado = confirmado` | Sí (dueña) | 4.1 |
 
 ### Matches (el corazón del flujo de invitación)
 
@@ -74,7 +76,7 @@ loguearse aparte después de registrarse. El token va en
 |---|---|---|---|---|---|
 | `POST` | `/matches/{match_id}/invitar` | `{}` | Match actualizado, `estado: "notificado"` | Sí (empresa dueña del match) | 4.2 |
 | `POST` | `/matches/{match_id}/responder` | `{aceptar: boolean}` | Match actualizado, `estado: "confirmado" \| "rechazado"` | Sí (perfil dueño del match) | 4.4 |
-| `GET` | `/matches/{match_id}` | — | Documento completo del match, con visibilidad de campos según `estado` (ver esquema de datos) | No | 2.10 |
+| `GET` | `/matches/{match_id}` | — | Documento del match, con visibilidad contextual según estado y sujeto autenticado | Sí (dueño del match) | 2.10 |
 
 ---
 
@@ -104,7 +106,7 @@ Cada módulo del backend expone funciones con nombres predecibles — así, quie
 | `backend/services/cv_generator.py` | `generar_cv_harvard(cv_data, busqueda_interes=None)` | Devuelve el texto del CV formateado | ✅ sí |
 | `backend/services/auth.py` | `hashear_password(password)` / `verificar_password(password, hash)` | PBKDF2-HMAC-SHA256 con salt aleatorio | ❌ no |
 | `backend/services/auth.py` | `crear_token(sujeto_id, tipo)` / `verificar_token(token)` | Token de sesión firmado con HMAC (`AUTH_SECRET_KEY`), expira a los 7 días | ❌ no |
-| `backend/routes/auth.py` | `usuario_actual(authorization)` | Dependency de FastAPI: exige `Authorization: Bearer <token>` válido, devuelve `{sub, tipo, exp}` | ❌ no |
+| `backend/routes/auth.py` | `usuario_actual(session_cookie, authorization)` | Dependency de FastAPI: exige cookie `rumbo_session` o `Authorization: Bearer <token>`, devuelve `{sub, tipo, exp}` | ❌ no |
 
 **Sobre la columna "¿Usa Gemini?":** solo lo que está en `agents/` (más el generador de CV) hace llamadas de *razonamiento* al modelo — decisiones, criterio, texto libre. `backend/services/embeddings.py` sí llama a Gemini por debajo (vía `gemini_client.py`) pero es una transformación mecánica (texto → vector), no una decisión — por eso está marcado con *. Todo lo demás es determinístico — esa separación es deliberada y es lo que mantiene bajo el costo y la latencia del sistema.
 

@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -15,7 +16,20 @@ from backend.routes import auth, empresas, matches, perfiles, puestos
 
 logging.basicConfig(level=logging.INFO)
 
+
+def _frontend_origins() -> list[str]:
+    raw = os.getenv("FRONTEND_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
+    return [origin.strip() for origin in raw.split(",") if origin.strip()]
+
 app = FastAPI(title="Rumbo", version="0.1.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_frontend_origins(),
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
+)
 
 app.include_router(auth.router)
 app.include_router(perfiles.router)
@@ -28,6 +42,33 @@ _FRONTEND_DIST = _REPO_ROOT / "frontend" / "dist"
 
 if _FRONTEND_DIST.exists():
     app.mount("/app", StaticFiles(directory=_FRONTEND_DIST, html=True), name="frontend")
+
+
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self'; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com data:; "
+        "img-src 'self' data:; "
+        "connect-src 'self'; "
+        "frame-ancestors 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self'"
+    )
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
+
+
+@app.middleware("http")
+async def request_logging_middleware(request: Request, call_next):
+    response = await call_next(request)
+    logging.info("%s %s -> %s", request.method, request.url.path, response.status_code)
+    return response
 
 
 @app.get("/health")

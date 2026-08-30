@@ -5,9 +5,12 @@ Configuración de tests: Fake Firestore + TestClient de FastAPI.
 import os
 
 os.environ.setdefault("AUTH_SECRET_KEY", "clave-de-test-no-usar-en-produccion")
+os.environ.setdefault("APP_ENV", "test")
 
 import pytest
 from fastapi.testclient import TestClient
+
+from backend.services.auth import crear_token
 
 # Monkey-patch del cliente Firestore ANTES de importar main
 import backend.services.firestore_client as fc
@@ -16,6 +19,7 @@ from tests.fakes import FAKE_DB, FakeFirestore
 # Monkey-patch de Gemini: los tests nunca llaman a la API real (sin red, sin
 # credenciales). Ver `tests/fakes_gemini.py` para el criterio del doble de prueba.
 import backend.services.gemini_client as gc
+import backend.services.rate_limit as rate_limit_module
 from tests.fakes_gemini import fake_generar_embedding_vector, fake_generar_json
 
 
@@ -47,14 +51,24 @@ from main import app
 def fake_db():
     """Fixture que limpia el fake DB antes de cada test."""
     FAKE_DB.clear_all()
+    rate_limit_module.reset_rate_limits()
     yield FAKE_DB
     FAKE_DB.clear_all()
+    rate_limit_module.reset_rate_limits()
 
 
 @pytest.fixture
 def client():
     """TestClient de FastAPI con el fake DB ya inyectado."""
     return TestClient(app)
+
+
+@pytest.fixture
+def make_client():
+    def _make_client():
+        return TestClient(app)
+
+    return _make_client
 
 
 @pytest.fixture
@@ -90,6 +104,22 @@ def sample_empresa():
 def auth_headers(token: str) -> dict:
     """Header Authorization listo para pasar a `client.put/post(..., headers=...)`."""
     return {"Authorization": f"Bearer {token}"}
+
+
+def auth_headers_for(subject_id: str, tipo: str) -> dict:
+    return auth_headers(crear_token(subject_id, tipo))
+
+
+def registrar_perfil(client: TestClient, payload: dict) -> str:
+    response = client.post("/perfiles", json=payload)
+    assert response.status_code == 201
+    return response.json()["perfil_id"]
+
+
+def registrar_empresa(client: TestClient, payload: dict) -> str:
+    response = client.post("/empresas", json=payload)
+    assert response.status_code == 201
+    return response.json()["empresa_id"]
 
 
 @pytest.fixture

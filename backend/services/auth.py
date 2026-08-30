@@ -13,8 +13,11 @@ import json
 import os
 import time
 
+from fastapi import Response
+
 _ITERACIONES_PBKDF2 = 200_000
 _TOKEN_TTL_SEGUNDOS = 60 * 60 * 24 * 7  # 7 días
+SESSION_COOKIE_NAME = "rumbo_session"
 
 
 class AuthError(ValueError):
@@ -26,6 +29,14 @@ def _secret() -> bytes:
     if not secreto:
         raise RuntimeError("AUTH_SECRET_KEY no está seteada")
     return secreto.encode("utf-8")
+
+
+def _app_env() -> str:
+    return os.getenv("APP_ENV", "development").strip().lower()
+
+
+def _cookie_secure() -> bool:
+    return _app_env() not in {"development", "dev", "local", "test"}
 
 
 def hashear_password(password: str) -> str:
@@ -79,3 +90,29 @@ def verificar_token(token: str) -> dict:
     if payload["exp"] < time.time():
         raise AuthError("token expirado")
     return payload
+
+
+def establecer_cookie_sesion(response: Response, token: str) -> None:
+    response.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=token,
+        max_age=_TOKEN_TTL_SEGUNDOS,
+        httponly=True,
+        secure=_cookie_secure(),
+        samesite="strict",
+        path="/",
+    )
+
+
+def limpiar_cookie_sesion(response: Response) -> None:
+    response.delete_cookie(
+        key=SESSION_COOKIE_NAME,
+        httponly=True,
+        secure=_cookie_secure(),
+        samesite="strict",
+        path="/",
+    )
+
+
+def sesion_publica(payload: dict) -> dict:
+    return {"id": payload["sub"], "tipo": payload["tipo"]}

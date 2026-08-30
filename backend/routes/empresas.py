@@ -1,8 +1,8 @@
 """
 Endpoints de empresas. Ver `rumbo-contrato-interfaces.md`, sección 3.
 
-POST /empresas                            -> crea empresa (1.4) + devuelve token de sesión (1.1)
-GET  /empresas/{empresa_id}               -> devuelve empresa (1.4)
+POST /empresas                            -> crea empresa (1.4) + setea cookie de sesión (1.1)
+GET  /empresas/{empresa_id}               -> devuelve empresa (1.4), requiere sesión propia
 PUT  /empresas/{empresa_id}               -> edita empresa (1.4), requiere sesión propia
 POST /empresas/{empresa_id}/puestos       -> carga puesto + dispara indexado (1.5), requiere sesión propia
 GET  /empresas/{empresa_id}/puestos       -> lista puestos (1.5)
@@ -10,15 +10,16 @@ GET  /empresas/{empresa_id}/mapa-perfiles -> matches de la empresa, ?puesto_id= 
 """
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
 from backend.models.empresa import Empresa, EmpresaCreate, EmpresaUpdate
 from backend.models.puesto import Puesto, PuestoCreate
 from backend.pipeline.matching_pipeline import ejecutar_pipeline_indexado
 from backend.routes.auth import usuario_actual
-from backend.services.auth import crear_token, hashear_password
+from backend.services.auth import crear_token, establecer_cookie_sesion, hashear_password
 from backend.services.firestore_client import crear, listar, obtener
 from backend.services.invitaciones import filtrar_campos_visibles
+from backend.services.rate_limit import enforce_rate_limit
 
 router = APIRouter(prefix="/empresas", tags=["empresas"])
 
@@ -36,12 +37,13 @@ def _sin_internos(data: dict) -> dict:
 
 def _requiere_dueno(empresa_id: str, sesion: dict) -> None:
     if sesion["tipo"] != "empresa" or sesion["sub"] != empresa_id:
-        _error(status.HTTP_403_FORBIDDEN, "No podés modificar una empresa que no es la tuya", "NO_AUTORIZADO")
+        _error(status.HTTP_403_FORBIDDEN, "No podés acceder a una empresa que no es la tuya", "NO_AUTORIZADO")
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-def crear_empresa(empresa: EmpresaCreate):
-    """Crea una empresa y devuelve un token de sesión (login automático al registrarse)."""
+def crear_empresa(empresa: EmpresaCreate, request: Request, response: Response):
+    """Crea una empresa y abre sesión con cookie HttpOnly."""
+    enforce_rate_limit(request, scope="registro_empresa", max_requests=5, window_seconds=60, actor=empresa.email_registro)
     if listar("empresas", {"email_registro": empresa.email_registro}):
         _error(status.HTTP_409_CONFLICT, "Ya existe una cuenta con ese email", "EMAIL_YA_REGISTRADO")
 
@@ -52,13 +54,15 @@ def crear_empresa(empresa: EmpresaCreate):
     empresa_id = crear("empresas", datos)
     respuesta = _sin_internos(datos)
     respuesta["empresa_id"] = empresa_id
-    respuesta["token"] = crear_token(empresa_id, "empresa")
+    respuesta["tipo"] = "empresa"
+    establecer_cookie_sesion(response, crear_token(empresa_id, "empresa"))
     return {"empresa_id": empresa_id, **respuesta}
 
 
 @router.get("/{empresa_id}")
-def obtener_empresa(empresa_id: str):
+def obtener_empresa(empresa_id: str, sesion: dict = Depends(usuario_actual)):
     """Devuelve la empresa."""
+    _requiere_dueno(empresa_id, sesion)
     data = obtener("empresas", empresa_id)
     if data is None:
         _error(status.HTTP_404_NOT_FOUND, "Empresa no encontrada", "EMPRESA_NO_ENCONTRADA")
@@ -110,8 +114,9 @@ def crear_puesto(empresa_id: str, puesto: PuestoCreate, sesion: dict = Depends(u
 
 
 @router.get("/{empresa_id}/puestos")
-def listar_puestos_empresa(empresa_id: str):
+def listar_puestos_empresa(empresa_id: str, sesion: dict = Depends(usuario_actual)):
     """Lista los puestos activos de la empresa."""
+    _requiere_dueno(empresa_id, sesion)
     data = obtener("empresas", empresa_id)
     if data is None:
         _error(status.HTTP_404_NOT_FOUND, "Empresa no encontrada", "EMPRESA_NO_ENCONTRADA")
@@ -123,7 +128,7 @@ def listar_puestos_empresa(empresa_id: str):
 
 
 @router.get("/{empresa_id}/mapa-perfiles")
-def mapa_perfiles_empresa(empresa_id: str, puesto_id: str | None = None):
+def mapa_perfiles_empresa(empresa_id: str, puesto_id: str | None = None, sesion: dict = Depends(usuario_actual)):
     """
     Mapa de perfiles afines a los puestos de la empresa (backlog 4.1).
 
@@ -131,6 +136,7 @@ def mapa_perfiles_empresa(empresa_id: str, puesto_id: str | None = None):
     Respuesta: perfiles con visibilidad filtrada según estado del match
     (apellido/email/telefono solo si confirmado).
     """
+    _requiere_dueno(empresa_id, sesion)
     data = obtener("empresas", empresa_id)
     if data is None:
         _error(status.HTTP_404_NOT_FOUND, "Empresa no encontrada", "EMPRESA_NO_ENCONTRADA")

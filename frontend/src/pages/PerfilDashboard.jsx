@@ -21,7 +21,7 @@ export default function PerfilDashboard() {
 
   const cargarMatches = useCallback(async () => {
     try {
-      const data = await api(`/perfiles/${sesion.id}/matches`, { auth: true });
+      const data = await api(`/perfiles/${sesion.id}/matches`);
 
       const conDescripcion = await Promise.all(
         data.map(async (m) => {
@@ -63,7 +63,7 @@ export default function PerfilDashboard() {
 
   async function responder(matchId, aceptar) {
     try {
-      await api(`/matches/${matchId}/responder`, { method: 'POST', auth: true, body: { aceptar } });
+      await api(`/matches/${matchId}/responder`, { method: 'POST', body: { aceptar } });
       cargarMatches();
     } catch {
       setError('No se pudo enviar tu respuesta. Probá de nuevo.');
@@ -98,7 +98,7 @@ export default function PerfilDashboard() {
               </div>
             )}
           </div>
-          <button className="btn btn-ghost-dark" onClick={() => { logout(); navigate('/'); }}>Salir</button>
+          <button className="btn btn-ghost-dark" onClick={async () => { await logout(); navigate('/'); }}>Salir</button>
         </div>
       </div>
 

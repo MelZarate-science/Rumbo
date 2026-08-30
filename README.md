@@ -28,7 +28,7 @@ sees the other until there is explicit consent.
 
 | Feature | Status |
 |---|---|
-| Auth (password + session token, backlog 1.1) | ✅ |
+| Auth (password + cookie de sesión HttpOnly, backlog 1.1) | ✅ |
 | Profile CRUD + CV data | ✅ |
 | Company & job post CRUD | ✅ |
 | Role classification (Gemini) | ✅ |

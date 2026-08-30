@@ -6,9 +6,9 @@ GET  /matches/{match_id}           -> match con visibilidad según estado (2.10)
 POST /matches/{match_id}/invitar   -> acción MANUAL de la empresa (4.2)
 POST /matches/{match_id}/responder -> acción MANUAL del perfil (4.4)
 """
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import BaseModel
 
-from backend.models.match import EstadoMatch
 from backend.routes.auth import usuario_actual
 from backend.services.firestore_client import obtener
 from backend.services.invitaciones import (
@@ -17,6 +17,7 @@ from backend.services.invitaciones import (
     filtrar_campos_visibles,
     procesar_respuesta,
 )
+from backend.services.rate_limit import enforce_rate_limit
 
 router = APIRouter(prefix="/matches", tags=["matches"])
 
@@ -28,20 +29,31 @@ def _error(status_code: int, mensaje: str, codigo: str):
     )
 
 
+class ResponderMatchBody(BaseModel):
+    aceptar: bool
+
+
+def _es_empresa_duena(sesion: dict, match: dict) -> bool:
+    return sesion["tipo"] == "empresa" and sesion["sub"] == match.get("empresa_id")
+
+
+def _es_perfil_dueno(sesion: dict, match: dict) -> bool:
+    return sesion["tipo"] == "perfil" and sesion["sub"] == match.get("perfil_id")
+
+
 @router.get("/{match_id}")
-def obtener_match(match_id: str):
+def obtener_match(match_id: str, sesion: dict = Depends(usuario_actual)):
     """
     Devuelve el match con visibilidad según quién consulta:
-    - Si el perfil consulta (estado pendiente): sin empresa_nombre.
-    - Si la empresa consulta: perfil filtrado según estado.
-    Para MVP, la ruta es pública y decide visibilidad combinada:
-      * empresa: siempre visible (la empresa conoce su propio nombre)
-      * perfil: solo visible si estado != pendiente
-      * campos privados del perfil: solo si confirmado
+    - empresa dueña: empresa visible y perfil filtrado según estado;
+    - perfil dueño: empresa visible solo si el estado ya la habilita;
+    - terceros: 403.
     """
     match = obtener("matches", match_id)
     if match is None:
         _error(status.HTTP_404_NOT_FOUND, "Match no encontrado", "MATCH_NO_ENCONTRADO")
+    if not _es_empresa_duena(sesion, match) and not _es_perfil_dueno(sesion, match):
+        _error(status.HTTP_403_FORBIDDEN, "No podés ver un match que no es tuyo", "NO_AUTORIZADO")
 
     match["match_id"] = match_id
 
@@ -69,14 +81,18 @@ def obtener_match(match_id: str):
 
     # Visibilidad de empresa para el perfil
     from backend.services.invitaciones import es_empresa_visible
-    if es_empresa_visible(match["estado"]):
+    if _es_empresa_duena(sesion, match):
+        empresa_para_perfil = empresa_info
+    elif es_empresa_visible(match["estado"]):
         empresa_para_perfil = empresa_info
     else:
         empresa_para_perfil = {"empresa_id": match.get("empresa_id"), "nombre": None}
 
+    empresa_visible = empresa_info if _es_empresa_duena(sesion, match) else empresa_para_perfil
+
     return {
         "match_id": match["match_id"],
-        "empresa": empresa_info,
+        "empresa": empresa_visible,
         "empresa_para_perfil": empresa_para_perfil,
         "puesto": puesto_info,
         "perfil": perfil_filtrado,
@@ -90,7 +106,7 @@ def obtener_match(match_id: str):
 
 
 @router.post("/{match_id}/invitar")
-def invitar_match(match_id: str, sesion: dict = Depends(usuario_actual)):
+def invitar_match(match_id: str, request: Request, sesion: dict = Depends(usuario_actual)):
     """
     Acción MANUAL de la empresa: invita al perfil.
     Cambia estado pendiente -> notificado. Requiere sesión de la empresa dueña.
@@ -100,6 +116,7 @@ def invitar_match(match_id: str, sesion: dict = Depends(usuario_actual)):
         _error(status.HTTP_404_NOT_FOUND, "Match no encontrado", "MATCH_NO_ENCONTRADO")
     if sesion["tipo"] != "empresa" or sesion["sub"] != match_actual.get("empresa_id"):
         _error(status.HTTP_403_FORBIDDEN, "No podés invitar sobre un match que no es tuyo", "NO_AUTORIZADO")
+    enforce_rate_limit(request, scope="match_invitar", max_requests=20, window_seconds=60, actor=sesion["sub"])
 
     try:
         match = enviar_invitacion(match_id)
@@ -110,7 +127,12 @@ def invitar_match(match_id: str, sesion: dict = Depends(usuario_actual)):
 
 
 @router.post("/{match_id}/responder")
-def responder_match(match_id: str, body: dict, sesion: dict = Depends(usuario_actual)):
+def responder_match(
+    match_id: str,
+    body: ResponderMatchBody,
+    request: Request,
+    sesion: dict = Depends(usuario_actual),
+):
     """
     Acción MANUAL del perfil: acepta o rechaza la invitación.
     Cambia estado notificado -> confirmado | rechazado. Requiere sesión del perfil dueño.
@@ -120,13 +142,10 @@ def responder_match(match_id: str, body: dict, sesion: dict = Depends(usuario_ac
         _error(status.HTTP_404_NOT_FOUND, "Match no encontrado", "MATCH_NO_ENCONTRADO")
     if sesion["tipo"] != "perfil" or sesion["sub"] != match_actual.get("perfil_id"):
         _error(status.HTTP_403_FORBIDDEN, "No podés responder un match que no es tuyo", "NO_AUTORIZADO")
-
-    aceptar = body.get("aceptar")
-    if not isinstance(aceptar, bool):
-        _error(status.HTTP_422_UNPROCESSABLE_ENTITY, "Campo 'aceptar' (bool) requerido", "ERROR_VALIDACION")
+    enforce_rate_limit(request, scope="match_responder", max_requests=20, window_seconds=60, actor=sesion["sub"])
 
     try:
-        match = procesar_respuesta(match_id, aceptar)
+        match = procesar_respuesta(match_id, body.aceptar)
     except TransicionInvalidaError as e:
         _error(status.HTTP_400_BAD_REQUEST, str(e), "TRANSICION_INVALIDA")
     match["match_id"] = match_id

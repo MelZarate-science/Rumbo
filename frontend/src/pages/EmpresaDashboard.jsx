@@ -25,7 +25,7 @@ export default function EmpresaDashboard() {
   const cargarMapa = useCallback(async () => {
     setCargandoMapa(true);
     try {
-      const data = await api(`/empresas/${sesion.id}/mapa-perfiles`, { auth: true });
+      const data = await api(`/empresas/${sesion.id}/mapa-perfiles`);
       setMapa(data);
     } catch {
       // silencioso: puede no haber puestos todavía
@@ -42,7 +42,7 @@ export default function EmpresaDashboard() {
     setPublicando(true);
     setMensajePuesto('Publicando y clasificando con el agente… puede tardar unos segundos.');
     try {
-      await api(`/empresas/${sesion.id}/puestos`, { method: 'POST', auth: true, body: { titulo, descripcion } });
+      await api(`/empresas/${sesion.id}/puestos`, { method: 'POST', body: { titulo, descripcion } });
       setMensajePuesto('Puesto publicado e indexado.');
       setTitulo('');
       setDescripcion('');
@@ -56,7 +56,7 @@ export default function EmpresaDashboard() {
 
   async function invitar(matchId) {
     try {
-      await api(`/matches/${matchId}/invitar`, { method: 'POST', auth: true });
+      await api(`/matches/${matchId}/invitar`, { method: 'POST' });
       cargarMapa();
     } catch {
       // no-op
@@ -70,7 +70,7 @@ export default function EmpresaDashboard() {
           <CompassMark size={24} needleColor="#fff" />
           <span style={{ fontFamily: 'var(--font-display)', fontSize: '1.15rem' }}>Rumbo</span>
         </div>
-        <button className="btn btn-ghost-dark" onClick={() => { logout(); navigate('/'); }}>Salir</button>
+        <button className="btn btn-ghost-dark" onClick={async () => { await logout(); navigate('/'); }}>Salir</button>
       </div>
 
       <section style={{ padding: '3rem 8vw', maxWidth: 1000, margin: '0 auto' }}>

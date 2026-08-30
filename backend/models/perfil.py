@@ -44,10 +44,10 @@ class FormacionItem(BaseModel):
 
 
 class ProyectoItem(BaseModel):
-    nombre: str
-    descripcion: str
+    nombre: str = Field(min_length=1, max_length=120)
+    descripcion: str = Field(min_length=1, max_length=3000)
     fecha: datetime | None = None
-    link: str | None = None
+    link: str | None = Field(default=None, max_length=500)
 
 
 class CvData(BaseModel):
@@ -59,12 +59,12 @@ class CvData(BaseModel):
 
 class Perfil(BaseModel):
     perfil_id: str | None = None
-    nombre: str                       # visible a la empresa antes del opt-in
-    apellido: str                     # NO visible antes del opt-in
+    nombre: str = Field(min_length=1, max_length=80)                       # visible a la empresa antes del opt-in
+    apellido: str = Field(min_length=1, max_length=80)                     # NO visible antes del opt-in
     email: str                        # NO visible antes del opt-in
-    telefono: str | None = None       # NO visible antes del opt-in
+    telefono: str | None = Field(default=None, max_length=20)       # NO visible antes del opt-in
     password_hash: str | None = None  # nunca se serializa hacia afuera (ver routes/perfiles.py)
-    cv_texto_original: str | None = None
+    cv_texto_original: str | None = Field(default=None, max_length=12000)
     cv_data: CvData = Field(default_factory=CvData)  # visible a la empresa antes del opt-in
     cv_generado_harvard: str | None = None
     busqueda_interes: str | None = None
@@ -98,14 +98,14 @@ class Perfil(BaseModel):
 
 class PerfilCreate(BaseModel):
     """Schema de entrada para crear perfil (sin campos de servidor)."""
-    nombre: str
-    apellido: str
+    nombre: str = Field(min_length=1, max_length=80)
+    apellido: str = Field(min_length=1, max_length=80)
     email: str
-    password: str
-    telefono: str | None = None
-    cv_texto_original: str | None = None
+    password: str = Field(min_length=8, max_length=256)
+    telefono: str | None = Field(default=None, max_length=20)
+    cv_texto_original: str | None = Field(default=None, max_length=12000)
     cv_data: CvData = Field(default_factory=CvData)
-    busqueda_interes: str | None = None
+    busqueda_interes: str | None = Field(default=None, max_length=160)
 
     @field_validator("email")
     @classmethod
@@ -125,18 +125,30 @@ class PerfilCreate(BaseModel):
             raise ValueError("telefono inválido")
         return v
 
-    @field_validator("password")
-    @classmethod
-    def _password_valida(cls, v: str) -> str:
-        if len(v) < 8:
-            raise ValueError("la contraseña debe tener al menos 8 caracteres")
-        return v
-
-
 class PerfilUpdate(BaseModel):
     """Modelo para actualización parcial de perfil (PUT datos personales)."""
-    nombre: str | None = None
-    apellido: str | None = None
+    nombre: str | None = Field(default=None, min_length=1, max_length=80)
+    apellido: str | None = Field(default=None, min_length=1, max_length=80)
     email: str | None = None
-    telefono: str | None = None
-    busqueda_interes: str | None = None
+    telefono: str | None = Field(default=None, max_length=20)
+    busqueda_interes: str | None = Field(default=None, max_length=160)
+
+    @field_validator("email")
+    @classmethod
+    def _email_valido(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip()
+        if not _EMAIL_RE.match(v):
+            raise ValueError("email inválido")
+        return v.lower()
+
+    @field_validator("telefono")
+    @classmethod
+    def _telefono_valido(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip()
+        if not _TELEFONO_RE.match(v):
+            raise ValueError("telefono inválido")
+        return v

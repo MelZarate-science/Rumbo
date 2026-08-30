@@ -63,7 +63,7 @@ export default function Auth() {
           cv_data,
         });
         // Dispara el matching real con las habilidades recién cargadas.
-        await api(`/perfiles/${registrado.perfil_id}/cv`, { method: 'PUT', auth: true, body: cv_data });
+        await api(`/perfiles/${registrado.perfil_id}/cv`, { method: 'PUT', body: cv_data });
         navigate('/perfil');
       } catch (err) {
         setError(err instanceof ApiError ? err.message : 'No se pudo crear la cuenta.');

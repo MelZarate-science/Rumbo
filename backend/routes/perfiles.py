@@ -1,8 +1,8 @@
 """
 Endpoints de perfiles. Ver `rumbo-contrato-interfaces.md`, sección 3.
 
-POST   /perfiles                        -> crea perfil (1.2) + devuelve token de sesión (1.1)
-GET    /perfiles/{perfil_id}            -> devuelve perfil (1.2)
+POST   /perfiles                        -> crea perfil (1.2) + setea cookie de sesión (1.1)
+GET    /perfiles/{perfil_id}            -> devuelve perfil (1.2), requiere sesión propia
 PUT    /perfiles/{perfil_id}            -> edita datos personales (1.2), requiere sesión propia
 PUT    /perfiles/{perfil_id}/cv         -> carga cv_data + dispara matching (1.3), requiere sesión propia
 POST   /perfiles/{perfil_id}/cv/pdf     -> parsea PDF a cv_data (3.1) [Fase 3]
@@ -13,13 +13,14 @@ GET    /perfiles/{perfil_id}/matches    -> puestos afines, SIN nombre_empresa
 """
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
 from backend.models.perfil import CvData, Perfil, PerfilCreate, PerfilUpdate
 from backend.pipeline.matching_pipeline import ejecutar_pipeline_matching
 from backend.routes.auth import usuario_actual
-from backend.services.auth import crear_token, hashear_password
+from backend.services.auth import crear_token, establecer_cookie_sesion, hashear_password
 from backend.services.firestore_client import crear, listar, obtener
+from backend.services.rate_limit import enforce_rate_limit
 
 router = APIRouter(prefix="/perfiles", tags=["perfiles"])
 
@@ -37,12 +38,13 @@ def _sin_internos(data: dict) -> dict:
 
 def _requiere_dueno(perfil_id: str, sesion: dict) -> None:
     if sesion["tipo"] != "perfil" or sesion["sub"] != perfil_id:
-        _error(status.HTTP_403_FORBIDDEN, "No podés modificar un perfil que no es el tuyo", "NO_AUTORIZADO")
+        _error(status.HTTP_403_FORBIDDEN, "No podés acceder a un perfil que no es el tuyo", "NO_AUTORIZADO")
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-def crear_perfil(perfil: PerfilCreate):
-    """Crea un perfil y devuelve un token de sesión (login automático al registrarse)."""
+def crear_perfil(perfil: PerfilCreate, request: Request, response: Response):
+    """Crea un perfil y abre sesión con cookie HttpOnly."""
+    enforce_rate_limit(request, scope="registro_perfil", max_requests=5, window_seconds=60, actor=perfil.email)
     if listar("perfiles", {"email": perfil.email}):
         _error(status.HTTP_409_CONFLICT, "Ya existe una cuenta con ese email", "EMAIL_YA_REGISTRADO")
 
@@ -52,13 +54,15 @@ def crear_perfil(perfil: PerfilCreate):
     perfil_id = crear("perfiles", datos)
     respuesta = _sin_internos(datos)
     respuesta["perfil_id"] = perfil_id
-    respuesta["token"] = crear_token(perfil_id, "perfil")
+    respuesta["tipo"] = "perfil"
+    establecer_cookie_sesion(response, crear_token(perfil_id, "perfil"))
     return {"perfil_id": perfil_id, **respuesta}
 
 
 @router.get("/{perfil_id}")
-def obtener_perfil(perfil_id: str):
+def obtener_perfil(perfil_id: str, sesion: dict = Depends(usuario_actual)):
     """Devuelve el perfil completo (vista propietario)."""
+    _requiere_dueno(perfil_id, sesion)
     data = obtener("perfiles", perfil_id)
     if data is None:
         _error(status.HTTP_404_NOT_FOUND, "Perfil no encontrado", "PERFIL_NO_ENCONTRADO")
@@ -112,12 +116,13 @@ def actualizar_cv(perfil_id: str, cv: CvData, sesion: dict = Depends(usuario_act
 
 
 @router.get("/{perfil_id}/matches")
-def listar_matches_perfil(perfil_id: str):
+def listar_matches_perfil(perfil_id: str, sesion: dict = Depends(usuario_actual)):
     """
     Lista los matches del perfil.
 
     Respuesta: sin nombre de empresa mientras el estado sea `pendiente`.
     """
+    _requiere_dueno(perfil_id, sesion)
     data = obtener("perfiles", perfil_id)
     if data is None:
         _error(status.HTTP_404_NOT_FOUND, "Perfil no encontrado", "PERFIL_NO_ENCONTRADO")

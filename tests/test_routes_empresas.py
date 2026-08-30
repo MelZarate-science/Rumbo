@@ -2,9 +2,7 @@
 Tests de endpoints de empresas y puestos.
 """
 
-import pytest
-
-from tests.conftest import auth_headers
+from tests.conftest import registrar_empresa, registrar_perfil
 
 
 def test_crear_empresa_ok(client, sample_empresa):
@@ -24,18 +22,15 @@ def test_crear_empresa_email_duplicado_falla(client, sample_empresa):
 
 
 def test_obtener_empresa_ok(client, sample_empresa):
-    r = client.post("/empresas", json=sample_empresa)
-    eid = r.json()["empresa_id"]
+    eid = registrar_empresa(client, sample_empresa)
     r = client.get(f"/empresas/{eid}")
     assert r.status_code == 200
     assert r.json()["empresa_id"] == eid
 
 
 def test_crear_puesto_ok(client, sample_empresa, sample_puesto):
-    r = client.post("/empresas", json=sample_empresa)
-    eid = r.json()["empresa_id"]
-    token = r.json()["token"]
-    r = client.post(f"/empresas/{eid}/puestos", json=sample_puesto, headers=auth_headers(token))
+    eid = registrar_empresa(client, sample_empresa)
+    r = client.post(f"/empresas/{eid}/puestos", json=sample_puesto)
     assert r.status_code == 201
     data = r.json()
     assert "puesto_id" in data
@@ -45,18 +40,19 @@ def test_crear_puesto_ok(client, sample_empresa, sample_puesto):
 
 
 def test_crear_puesto_sin_token_falla(client, sample_empresa, sample_puesto):
-    r = client.post("/empresas", json=sample_empresa)
-    eid = r.json()["empresa_id"]
+    eid = registrar_empresa(client, sample_empresa)
+    client.cookies.clear()
     r = client.post(f"/empresas/{eid}/puestos", json=sample_puesto)
     assert r.status_code == 401
 
 
 def test_listar_puestos_empresa(client, sample_empresa, sample_puesto):
-    r = client.post("/empresas", json=sample_empresa)
-    eid = r.json()["empresa_id"]
-    token = r.json()["token"]
-    client.post(f"/empresas/{eid}/puestos", json=sample_puesto, headers=auth_headers(token))
-    client.post(f"/empresas/{eid}/puestos", json={**sample_puesto, "titulo": "Senior Backend"}, headers=auth_headers(token))
+    eid = registrar_empresa(client, sample_empresa)
+    client.post(f"/empresas/{eid}/puestos", json=sample_puesto)
+    client.post(
+        f"/empresas/{eid}/puestos",
+        json={**sample_puesto, "titulo": "Senior Backend"},
+    )
 
     r = client.get(f"/empresas/{eid}/puestos")
     assert r.status_code == 200
@@ -67,37 +63,28 @@ def test_listar_puestos_empresa(client, sample_empresa, sample_puesto):
 
 
 def test_actualizar_puesto_reindexa_si_cambia_descripcion(client, sample_empresa, sample_puesto):
-    r = client.post("/empresas", json=sample_empresa)
-    eid = r.json()["empresa_id"]
-    token = r.json()["token"]
-    r = client.post(f"/empresas/{eid}/puestos", json=sample_puesto, headers=auth_headers(token))
+    eid = registrar_empresa(client, sample_empresa)
+    r = client.post(f"/empresas/{eid}/puestos", json=sample_puesto)
     pid = r.json()["puesto_id"]
 
     # Cambiar descripción -> debe re-ejecutar indexado
-    r = client.put(f"/puestos/{pid}", json={"descripcion": "Nueva descripción con Go y Kubernetes"}, headers=auth_headers(token))
+    r = client.put(f"/puestos/{pid}", json={"descripcion": "Nueva descripción con Go y Kubernetes"})
     assert r.status_code == 200
     # No falla, y el puesto se actualiza
     assert r.json()["descripcion"] == "Nueva descripción con Go y Kubernetes"
 
 
-def test_matches_empresa_filtra_privacidad(client, sample_perfil, sample_empresa, sample_puesto):
-    # Perfil
-    r = client.post("/perfiles", json=sample_perfil)
-    pid = r.json()["perfil_id"]
-    token_perfil = r.json()["token"]
-
-    # Empresa + puesto
-    r = client.post("/empresas", json=sample_empresa)
-    eid = r.json()["empresa_id"]
-    token_empresa = r.json()["token"]
-    r = client.post(f"/empresas/{eid}/puestos", json=sample_puesto, headers=auth_headers(token_empresa))
-
-    # Matching
-    cv = {"experiencia": [], "formacion": [], "habilidades": ["Python", "FastAPI"], "proyectos": []}
-    client.put(f"/perfiles/{pid}/cv", json=cv, headers=auth_headers(token_perfil))
-
-    # Listar matches desde empresa
-    r = client.get(f"/empresas/{eid}/mapa-perfiles")
+def test_matches_empresa_filtra_privacidad(client, make_client, sample_perfil, sample_empresa, sample_puesto):
+    perfil_client = make_client()
+    try:
+        pid = registrar_perfil(perfil_client, sample_perfil)
+        cv = {"experiencia": [], "formacion": [], "habilidades": ["Python", "FastAPI"], "proyectos": []}
+        empresa_id = registrar_empresa(client, sample_empresa)
+        client.post(f"/empresas/{empresa_id}/puestos", json=sample_puesto)
+        perfil_client.put(f"/perfiles/{pid}/cv", json=cv)
+        r = client.get(f"/empresas/{empresa_id}/mapa-perfiles")
+    finally:
+        perfil_client.close()
     assert r.status_code == 200
     data = r.json()
     assert len(data) > 0
@@ -109,3 +96,29 @@ def test_matches_empresa_filtra_privacidad(client, sample_perfil, sample_empresa
         assert "telefono" not in perfil
         # Pero sí cv_data
         assert "cv_data" in perfil
+
+
+def test_obtener_empresa_sin_sesion_falla(client, sample_empresa):
+    eid = registrar_empresa(client, sample_empresa)
+
+    client.cookies.clear()
+    r = client.get(f"/empresas/{eid}")
+    assert r.status_code == 401
+
+
+def test_mapa_perfiles_empresa_ajena_falla(client, make_client, sample_empresa):
+    eid = registrar_empresa(client, sample_empresa)
+
+    otra = {
+        **sample_empresa,
+        "nombre_empresa": "Otra Corp",
+        "email_registro": "otro@testcorp.com",
+    }
+    otra_client = make_client()
+    try:
+        registrar_empresa(otra_client, otra)
+        r = otra_client.get(f"/empresas/{eid}/mapa-perfiles")
+    finally:
+        otra_client.close()
+
+    assert r.status_code == 403
