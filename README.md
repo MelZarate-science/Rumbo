@@ -209,13 +209,54 @@ curl http://localhost:8080/health
 
 ## Try it live
 
-The deployed app already has seed data loaded. Two accounts to try, both
-with password `rumbo2026`:
+The deployed app (link at the top of this README) already has seed data
+loaded. Two accounts to try, both with password `rumbo2026`:
 
 - **Profile**: `ana.garcia@email.com` (has several existing matches, good
   for seeing the fit score and roadmap)
 - **Company**: `talento@technova.io` (has job posts loaded, good for seeing
   the profile map and the invite flow)
+
+When logging in, make sure the correct tab ("I'm a profile" / "I'm a
+company") is selected before typing the email — it defaults to "profile."
+
+### Walking through the main flow, and what to expect at each step
+
+You can either use the two accounts above to see existing state, or create
+brand-new ones to watch the whole pipeline run from scratch — both work on
+the same live URL, no local setup needed.
+
+1. **Register a company** (tab "I'm a company"): name, context, email,
+   password. You're logged in immediately — no separate login step.
+2. **Post a job** from the company dashboard (title + description). This
+   triggers the Role Classifier and Requirement Extractor agents in real
+   time — expect a short delay (a few seconds) while it calls Gemini, then
+   a "Puesto publicado e indexado" confirmation.
+3. **Register a profile** (tab "I'm a profile") with a resume description
+   and a comma-separated skills list that genuinely overlaps with the job
+   you just posted (e.g. if the job asks for "Python, FastAPI, PostgreSQL",
+   use similar skills). This also logs you in immediately and triggers
+   real matching.
+4. **Expected result**: the profile dashboard shows the job post as a
+   floating orb with a fit score, and clicking it opens a roadmap that
+   splits requirements into "standard for this role" vs. "specific to this
+   company" — with a suggestion for anything not covered by the profile's
+   CV. If the skills don't overlap enough with any existing job post, no
+   orb will appear; that's the two-level retrieval and similarity floor
+   working as intended, not a bug.
+5. **Switch back to the company account** and open its profile map — the
+   new profile should appear there too, with a score, but **without** last
+   name, email, or phone (staged visibility: nothing identifying is shown
+   until the company invites and the profile accepts).
+6. **Invite** the profile from the company dashboard. **Expected result**:
+   the match's state becomes `notificado`.
+7. **Switch back to the profile account.** **Expected result**: the
+   notification bell shows a red dot, and clicking it lists the pending
+   invitation with Accept/Reject buttons directly in that dropdown.
+8. **Accept it.** **Expected result**: the match becomes `confirmado`, and
+   only now does the company's profile map reveal the last name, email, and
+   phone for that specific profile — every other still-pending match stays
+   filtered.
 
 When logging in, make sure the correct tab ("I'm a profile" / "I'm a
 company") is selected before typing the email — it defaults to "profile."
