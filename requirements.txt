@@ -2,18 +2,13 @@
 google-adk
 google-genai
 google-cloud-firestore
-google-cloud-pubsub
 
 # --- Web ---
 fastapi
 uvicorn[standard]
 
 # --- Utilidades ---
-python-dotenv
 pydantic
-
-# --- Parseo de PDF (Fase 3) ---
-pypdf
 
 # --- Testing ---
 pytest
