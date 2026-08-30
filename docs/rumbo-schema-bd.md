@@ -12,8 +12,10 @@
 | `nombre_empresa` | string | Nombre público de la empresa |
 | `contexto` | string (texto libre) | El "system prompt" de la empresa: quién es, cultura, ambiente, a quién busca en general |
 | `email_registro` | string | Email de contacto usado en el registro (sin validación de dominio en el MVP) |
+| `password_hash` | string | `salt$hash` (PBKDF2-HMAC-SHA256) — nunca se serializa hacia ningún consumidor de la API (backlog 1.1) |
 | `created_at` | timestamp | Fecha de registro |
 | `activa` | boolean | Permite desactivar sin borrar (soft delete) |
+| `updated_at` | timestamp (opcional) | Última vez que se editó la empresa |
 
 **Nota de scope:** sin campo de validación/verificación — decisión consciente del MVP, documentada en el spec.
 
@@ -30,8 +32,9 @@ Capa intermedia de retrieval — un documento por cada tipo de rol (no por cada 
 | `descripcion_consolidada` | string | Síntesis narrativa generada por Gemini, en prosa, de lo que en general piden las empresas para este rol — para uso conversacional/explicativo |
 | `requisitos_frecuencia` | array de maps | Tabla de frecuencias: `[{requisito_id: "sql", cantidad: 6, porcentaje: 60}, {requisito_id: "gestion_stakeholders", cantidad: 10, porcentaje: 100}, ...]` — cada `requisito_id` referencia un documento en `requisitos_normalizados`, no texto suelto |
 | `requisitos_ids` | array de strings | Copia plana de los mismos IDs que aparecen en `requisitos_frecuencia`, sin la info de conteo — existe solo para poder hacer consultas tipo `array-contains` (ej: "¿en qué roles aparece la habilidad SQL?") sin tener que leer todos los roles y filtrar en el cliente |
-| `embedding` | vector | Embedding de `descripcion_consolidada` — este es el campo contra el que se corre `find_nearest()` |
-| `cantidad_puestos` | number | Cuántos puestos reales aportaron a esta síntesis, para saber qué tan representativa es |
+| `embedding` | vector | Embedding de `descripcion_consolidada` — este es el campo contra el que se corre `find_nearest()`, tanto desde el retrieval de perfiles (nivel 1) como desde el pre-filtro de candidatos del Agente 1 al clasificar un puesto nuevo |
+| `puestos_ids` | array de strings | IDs de los puestos que aportaron a este rol. `cantidad_puestos` es `len()` de este set — se cuenta así (no infiriendo de si subieron o bajaron los requisitos) para que reindexar el mismo puesto dos veces no mueva el contador |
+| `cantidad_puestos` | number | Cuántos puestos reales aportaron a esta síntesis, para saber qué tan representativa es. Con menos de 3, el Auditor todavía no confía en el `porcentaje_mercado` de sus requisitos (ver `agents/auditor_fit.py`) |
 | `updated_at` | timestamp | Última vez que se resintetizó la descripción consolidada |
 
 ---
@@ -45,6 +48,7 @@ Cada habilidad/herramienta/requisito es una entidad única, sin importar en cuá
 | `requisito_id` | string (ID del doc) | Identificador único (ej: `sql`, `gestion_stakeholders`) |
 | `nombre` | string | Nombre legible (ej: "SQL") |
 | `tipo` | string (opcional) | Categoría del requisito: `herramienta`, `habilidad_blanda`, `certificacion`, etc. — ayuda a que el roadmap pueda agrupar por tipo si hace falta |
+| `embedding` | vector | Embedding de `nombre`, generado al crear la entidad. Lo usa la cascada de reconciliación del Agente 2 (`agents/extractor_requisitos.py`) para preseleccionar candidatos por similitud antes de recurrir a Gemini |
 | `created_at` | timestamp | Cuándo se creó esta entidad |
 
 ---
@@ -61,6 +65,7 @@ Cada habilidad/herramienta/requisito es una entidad única, sin importar en cuá
 | `activo` | boolean | Si sigue disponible para matching |
 | `rol_normalizado_id` | string (referencia) | ID del documento en `roles_normalizados` al que pertenece este puesto. Lo asigna Gemini automáticamente al momento de cargar el puesto |
 | `requisitos_extraidos` | array de strings (IDs) | Referencias a `requisitos_normalizados` — Gemini extrae los requisitos de `descripcion` al cargar el puesto y los matchea contra entidades existentes (o crea una nueva si no hay ninguna lo bastante cercana) |
+| `updated_at` | timestamp (opcional) | Última vez que se editó el puesto (dispara re-indexado si cambia `titulo`/`descripcion`) |
 
 **Nota:** un puesto es opcional — una empresa puede existir solo con `contexto` y sin ningún puesto cargado todavía, y el matching igual puede correr contra ese contexto general.
 
@@ -75,12 +80,14 @@ Cada habilidad/herramienta/requisito es una entidad única, sin importar en cuá
 | `apellido` | string | Apellido completo | ❌ no |
 | `email` | string | Contacto | ❌ no |
 | `telefono` | string (opcional) | Contacto | ❌ no |
+| `password_hash` | string | `salt$hash` (PBKDF2-HMAC-SHA256) — nunca se serializa hacia ningún consumidor de la API (backlog 1.1) | ❌ no |
 | `cv_texto_original` | string | Texto extraído del PDF subido, si aplica | ❌ no (uso interno) |
 | `cv_data` | map | Estructura parseada — ver detalle completo en la sección siguiente | ✅ sí (contenido, no metadatos de contacto) |
 | `cv_generado_harvard` | string (opcional) | CV generado en formato Harvard, si el usuario lo pidió | ❌ no (es para el propio usuario) |
 | `busqueda_interes` | string (opcional) | Puesto/rol que el usuario indicó como objetivo, para adaptar el CV generado | — |
 | `embedding` | vector | Embedding generado a partir de todo el `cv_data` consolidado — es contra este campo que se corre `find_nearest()` sobre `roles_normalizados` | — |
 | `created_at` | timestamp | Fecha de registro | — |
+| `updated_at` | timestamp (opcional) | Última vez que se editaron los datos personales del perfil o su `cv_data` | — |
 
 **Nota de privacidad (Fase 4 del backlog):** los campos marcados como visibles antes del opt-in son los únicos que debe devolver la función/endpoint que arma el "mapa de perfiles" para la empresa. `apellido`, `email` y `telefono` solo se incluyen en la respuesta después de que el `match` correspondiente pase a estado `confirmado`.
 
@@ -150,7 +157,7 @@ Cada elemento del array es un map con esta forma:
 | `nombre` | string | Nombre legible del requisito (copiado para no tener que resolver la referencia al mostrarlo) |
 | `cumplido` | boolean | Si el perfil ya lo tiene (según su `cv_data`) o le falta |
 | `porcentaje_mercado` | number (0-100) | Qué porcentaje de los puestos de ese rol lo piden — viene de `requisitos_frecuencia` del rol |
-| `especifico_de_esta_empresa` | boolean | `true` si este puesto lo pide pero está por debajo del promedio del rol (es una particularidad de esta empresa, no un estándar del mercado) |
+| `especifico_de_esta_empresa` | boolean | Se deriva en vivo de `porcentaje_mercado` (por debajo de cierto umbral, es particularidad de esta empresa) — nunca se guarda como flag fijo, para que un requisito que se vuelve estándar del mercado con el tiempo deje de figurar como capricho de una empresa. Con menos de 3 puestos en el rol, no hay muestra suficiente y todo se marca `true` |
 | `sugerencia` | string (opcional) | Qué hacer para cubrirlo, si no está cumplido (ej: "sumar un proyecto con SQL") |
 
 Con esta estructura, la pantalla de detalle (tarea 2.13) puede dibujar la vista de red: `porcentaje_mercado` define el tamaño/centralidad de cada nodo, `cumplido` define el color, y `especifico_de_esta_empresa` distingue lo que pide el mercado en general de lo que pide esta empresa en particular.

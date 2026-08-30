@@ -107,7 +107,7 @@ Este es el corazón ético del producto, y la decisión de diseño más distinti
                           (manual)                (manual)
 ```
 
-**No hay agente coordinador.** El flujo es determinístico: siempre el mismo orden, sin decisiones de enrutamiento. La orquestación vive en `pipeline/matching_pipeline.py` como código plano. Google documenta que el patrón de coordinador agrega llamadas al modelo, costo y latencia — usarlo acá sería complejidad sin beneficio.
+**No hay agente coordinador.** El flujo es determinístico: siempre el mismo orden, sin decisiones de enrutamiento. La orquestación vive en `backend/pipeline/matching_pipeline.py` como código plano. Google documenta que el patrón de coordinador agrega llamadas al modelo, costo y latencia — usarlo acá sería complejidad sin beneficio.
 
 **Patrón:** secuencial multiagente + human-in-the-loop en dos puntos de control.
 
@@ -135,11 +135,11 @@ Este es el corazón ético del producto, y la decisión de diseño más distinti
 
 | Componente | Elección |
 |---|---|
-| Modelo | Gemini 3.5 (Flash para la mayoría de las operaciones, Pro para el razonamiento del Auditor) |
+| Modelo | Gemini 3.5 Flash para los 3 agentes, vía Vertex AI (requisito obligatorio de la competencia: Gemini 3.5 o superior). Solo disponible en este proyecto a través del endpoint `global` de Vertex -- `us-central1` todavía no lo sirve, devuelve 404 |
 | Framework de agentes | Google ADK |
 | Base de datos | Firestore, con soporte vectorial nativo (`find_nearest()`) |
 | Cómputo | Cloud Run |
-| Disparo asíncrono | Pub/Sub |
+| Disparo del pipeline | Síncrono, dentro del mismo request HTTP (`PUT /perfiles/{id}/cv`). Pub/Sub queda diferido (backlog 2.11), todavía no implementado |
 | Lenguaje | Python |
 
 **Evaluado y descartado para el MVP:** Cloud Talent Solution (potente, pero es infraestructura de producción y agrega setup que no aporta al scope de 8 días) y Spanner Graph (el grafo bipartito roles↔requisitos se resuelve con referencias simples en Firestore a este volumen). Ambos quedan como camino de evolución natural si el producto escala — vale mencionarlos en el pitch como decisiones conscientes, no como desconocimiento.

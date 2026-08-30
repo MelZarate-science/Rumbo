@@ -1,0 +1,106 @@
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root {
+  --navy: #123a5c;
+  --navy-deep: #0c2843;
+  --orange: #f0900f;
+  --orange-deep: #d97600;
+  --cream: #fbf9f5;
+  --font-display: 'Fraunces', Georgia, 'Times New Roman', serif;
+  --font-body: 'Manrope', -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Courier New', monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  background: var(--cream);
+  color: var(--navy-deep);
+}
+
+h1, h2, h3 {
+  font-family: var(--font-display);
+  font-weight: 500;
+  text-wrap: balance;
+  margin: 0;
+}
+
+button {
+  font-family: var(--font-body);
+}
+
+a {
+  color: inherit;
+}
+
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--orange-deep);
+}
+
+.btn {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 0.95rem;
+  padding: 0.85rem 1.6rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: transform 0.15s ease, opacity 0.2s ease, background 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+.btn:active { transform: scale(0.97); }
+.btn:focus-visible { outline: 2px solid var(--orange-deep); outline-offset: 2px; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn-primary { background: var(--orange); color: #2a1400; }
+.btn-primary:hover:not(:disabled) { opacity: 0.9; }
+
+.btn-ghost-light { background: transparent; color: var(--navy); border-color: #c7cdd5; }
+.btn-ghost-light:hover:not(:disabled) { border-color: var(--navy); }
+
+.btn-ghost-dark { background: rgba(255,255,255,0.06); color: #fff; border-color: rgba(255,255,255,0.16); }
+.btn-ghost-dark:hover:not(:disabled) { border-color: var(--orange); }
+
+.field-label {
+  font-size: 0.8rem;
+  margin: 0 0 0.4rem;
+  display: block;
+}
+
+.field-error {
+  font-size: 0.8rem;
+  color: #c0392b;
+  margin: -0.6rem 0 0.9rem;
+}
+
+input.field-input {
+  width: 100%;
+  height: 42px;
+  border-radius: 10px;
+  padding: 0 0.9rem;
+  font-family: var(--font-body);
+  font-size: 0.92rem;
+  margin-bottom: 1rem;
+}
+
+textarea.field-input {
+  width: 100%;
+  border-radius: 10px;
+  padding: 0.7rem 0.9rem;
+  font-family: var(--font-body);
+  font-size: 0.92rem;
+  margin-bottom: 1rem;
+  min-height: 80px;
+  resize: vertical;
+}
