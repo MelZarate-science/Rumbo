@@ -2,6 +2,24 @@
 
 > Firestore es NoSQL orientado a documentos, no relacional. Acá "colección" = tabla, "documento" = fila, y las relaciones se resuelven guardando el ID del documento relacionado como referencia (no hay JOINs). Se optó por colecciones a nivel raíz con referencias cruzadas, en vez de subcolecciones anidadas, porque el sistema necesita consultar `matches` cruzando `perfiles` y `puestos` con frecuencia, y eso es más simple con colecciones planas.
 
+## Mapa de colecciones
+
+La vista siguiente resume las relaciones persistidas. El detalle completo de
+campos, privacidad e índices aparece en las secciones posteriores.
+
+```mermaid
+%% source: docs/diagrams/rumbo-firestore.mmd
+erDiagram
+    EMPRESAS ||--o{ PUESTOS : publica
+    EMPRESAS ||--o{ MATCHES : recibe
+    PERFILES ||--o{ MATCHES : obtiene
+    PUESTOS ||--o{ MATCHES : genera
+    ROLES_NORMALIZADOS ||--o{ PUESTOS : clasifica
+    ROLES_NORMALIZADOS }o--o{ REQUISITOS_NORMALIZADOS : relaciona
+```
+
+[Fuente editable del diagrama](diagrams/rumbo-firestore.mmd).
+
 ---
 
 ## Colección: `empresas`
@@ -12,7 +30,7 @@
 | `nombre_empresa` | string | Nombre público de la empresa |
 | `contexto` | string (texto libre) | El "system prompt" de la empresa: quién es, cultura, ambiente, a quién busca en general |
 | `email_registro` | string | Email de contacto usado en el registro (sin validación de dominio en el MVP) |
-| `password_hash` | string | `salt$hash` (PBKDF2-HMAC-SHA256) — nunca se serializa hacia ningún consumidor de la API (backlog 1.1) |
+| `password_hash` | string | `salt$hash` (PBKDF2-HMAC-SHA256) — nunca se serializa hacia ningún consumidor de la API |
 | `created_at` | timestamp | Fecha de registro |
 | `activa` | boolean | Permite desactivar sin borrar (soft delete) |
 | `updated_at` | timestamp (opcional) | Última vez que se editó la empresa |
@@ -80,7 +98,7 @@ Cada habilidad/herramienta/requisito es una entidad única, sin importar en cuá
 | `apellido` | string | Apellido completo | ❌ no |
 | `email` | string | Contacto | ❌ no |
 | `telefono` | string (opcional) | Contacto | ❌ no |
-| `password_hash` | string | `salt$hash` (PBKDF2-HMAC-SHA256) — nunca se serializa hacia ningún consumidor de la API (backlog 1.1) | ❌ no |
+| `password_hash` | string | `salt$hash` (PBKDF2-HMAC-SHA256) — nunca se serializa hacia ningún consumidor de la API | ❌ no |
 | `cv_texto_original` | string | Texto extraído del PDF subido, si aplica | ❌ no (uso interno) |
 | `cv_data` | map | Estructura parseada — ver detalle completo en la sección siguiente | ✅ sí (contenido, no metadatos de contacto) |
 | `cv_generado_harvard` | string (opcional) | CV generado en formato Harvard, si el usuario lo pidió | ❌ no (es para el propio usuario) |
@@ -89,7 +107,7 @@ Cada habilidad/herramienta/requisito es una entidad única, sin importar en cuá
 | `created_at` | timestamp | Fecha de registro | — |
 | `updated_at` | timestamp (opcional) | Última vez que se editaron los datos personales del perfil o su `cv_data` | — |
 
-**Nota de privacidad (Fase 4 del backlog):** los campos marcados como visibles antes del opt-in son los únicos que debe devolver la función/endpoint que arma el "mapa de perfiles" para la empresa. `apellido`, `email` y `telefono` solo se incluyen en la respuesta después de que el `match` correspondiente pase a estado `confirmado`.
+**Nota de privacidad:** los campos marcados como visibles antes del opt-in son los únicos que debe devolver la función/endpoint que arma el "mapa de perfiles" para la empresa. `apellido`, `email` y `telefono` solo se incluyen en la respuesta después de que el `match` correspondiente pase a estado `confirmado`.
 
 ### Detalle de `cv_data` (subestructura completa)
 
@@ -178,7 +196,7 @@ pendiente → notificado → confirmado   (perfil aceptó la invitación → pas
 
 **Visibilidad de `puesto`/`empresa` del lado del perfil:** mientras el match esté en `pendiente`, el perfil ve `titulo`, `descripcion`, `roadmap` y `score` del puesto — nunca `nombre_empresa` ni `contexto`. Esos dos campos solo se revelan al perfil cuando el match pasa a `notificado`.
 
-**Comportamiento proactivo (sin lenguaje de búsqueda):** apenas un perfil termina de registrarse, el disparo asíncrono por Pub/Sub (backlog 2.11) calcula sus matches contra los puestos existentes y se los muestra directamente al entrar a la plataforma — no hay un botón de "buscar", el sistema ya le presenta sus puestos más afines de entrada.
+**Comportamiento proactivo (sin lenguaje de búsqueda):** cuando un perfil guarda su CV, el pipeline síncrono calcula sus matches contra los puestos existentes y se los muestra directamente al entrar a la plataforma — no hay un botón de "buscar", el sistema ya le presenta sus puestos más afines de entrada. Un disparo asíncrono por Pub/Sub queda como evolución futura.
 
 ---
 
@@ -219,23 +237,11 @@ Firestore te va a avisar en la consola/logs cuándo falta crear un índice compu
 
 ## Resumen visual de relaciones
 
-```
-requisitos_normalizados (muchos) ──< roles_normalizados (muchos)   [relación M:N vía requisitos_ids]
-                                              │
-                                              │ (1)
-                                              ▼
-roles_normalizados (1) ────< puestos (muchos)
-                                  │
-empresas (1) ────< puestos (muchos)
-    │                    │
-    │                    │
-    └──────< matches >───┘
-                │
-           perfiles (1) ────< matches (muchos)
-```
-
 Un `match` siempre referencia un `perfil_id` y un `empresa_id`; `puesto_id` es opcional. El retrieval real ocurre en dos pasos: primero `perfiles.embedding` contra `roles_normalizados.embedding` (semántico), después un filtro simple de `puestos` por `rol_normalizado_id` (sin vector). Los requisitos discretos (`requisitos_normalizados`) se conectan a los roles como una relación muchos-a-muchos ponderada por frecuencia — el "grafo bipartito" mencionado arriba.
+
+La versión renderizada está al inicio de este documento y su fuente editable
+se mantiene en `docs/diagrams/rumbo-firestore.mmd`.
 
 ---
 
-*Este esquema corresponde a la tarea 0.3 del backlog — se crea antes de repartir el resto de las tareas en paralelo, para que todo el equipo trabaje sobre la misma estructura de datos. Los nombres de campo definidos acá son la fuente de verdad: ver `rumbo-contrato-interfaces.md` para cómo se usan en endpoints y funciones.*
+*Este esquema es la fuente de verdad para las colecciones y nombres de campo de Firestore. Ver `rumbo-contrato-interfaces.md` para cómo se usan en endpoints y funciones.*

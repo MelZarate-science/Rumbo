@@ -1,0 +1,24 @@
+%% Identifying information is revealed only after explicit human consent.
+stateDiagram-v2
+    [*] --> pendiente: match creado
+    pendiente --> notificado: empresa invita
+    notificado --> confirmado: perfil acepta
+    notificado --> rechazado: perfil rechaza
+    pendiente --> pendiente: no hay acción humana
+    confirmado --> [*]
+    rechazado --> [*]
+
+    note right of pendiente
+        Perfil: puesto, score y roadmap
+        Empresa: nombre de pila y CV filtrado
+        Sin datos de contacto
+    end note
+
+    note right of notificado
+        Perfil ve la empresa y el puesto
+        La empresa aún no ve contacto
+    end note
+
+    note right of confirmado
+        Se revelan apellido, email y teléfono
+    end note

@@ -1,0 +1,51 @@
+%% Rumbo Firestore schema: IDs are references, not joins.
+erDiagram
+    EMPRESAS ||--o{ PUESTOS : publica
+    EMPRESAS ||--o{ MATCHES : recibe
+    PERFILES ||--o{ MATCHES : obtiene
+    PUESTOS ||--o{ MATCHES : genera
+    ROLES_NORMALIZADOS ||--o{ PUESTOS : clasifica
+    ROLES_NORMALIZADOS }o--o{ REQUISITOS_NORMALIZADOS : relaciona
+
+    EMPRESAS {
+        string empresa_id PK
+        string nombre_empresa
+        string contexto
+        string email_registro
+        boolean activa
+    }
+    PUESTOS {
+        string puesto_id PK
+        string empresa_id FK
+        string rol_normalizado_id FK
+        string titulo
+        boolean activo
+        string requisitos_extraidos
+    }
+    PERFILES {
+        string perfil_id PK
+        string nombre
+        json cv_data
+        vector embedding
+    }
+    MATCHES {
+        string match_id PK
+        string perfil_id FK
+        string empresa_id FK
+        string puesto_id FK
+        number score
+        string estado
+    }
+    ROLES_NORMALIZADOS {
+        string rol_normalizado_id PK
+        string nombre_normalizado
+        string requisitos_ids
+        vector embedding
+        number cantidad_puestos
+    }
+    REQUISITOS_NORMALIZADOS {
+        string requisito_id PK
+        string nombre
+        string tipo
+        vector embedding
+    }

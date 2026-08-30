@@ -1,0 +1,38 @@
+%% Fixed orchestration; Gemini is used only where semantic judgment is needed.
+flowchart LR
+    subgraph INPUT[Human inputs]
+        C[Company context + job post]
+        P[Profile CV]
+    end
+
+    subgraph INDEX[Job indexing]
+        R1[Embedding shortlist]
+        A1[Role Classifier\nGemini 3.5 + ADK]
+        A2[Requirement Extractor\nGemini 3.5 + ADK]
+    end
+
+    subgraph MATCH[Profile matching]
+        E[Profile embedding]
+        N1[Retrieval N1\nFirestore find_nearest]
+        N2[Retrieval N2\nfilter by role]
+        A3[Fit Auditor\nGemini 3.5 + ADK]
+    end
+
+    DB[(Firestore)]
+    OUT[Match + score + roadmap]
+
+    C --> R1 --> A1 --> A2 --> DB
+    P --> E --> N1 --> N2 --> A3 --> OUT
+    DB --> R1
+    DB --> N1
+    DB --> N2
+    DB --> A3
+
+    classDef human fill:#f2ecff,stroke:#7c3aed,color:#29124f
+    classDef model fill:#fff4de,stroke:#c47a00,color:#4a2a00
+    classDef deterministic fill:#e8f1ff,stroke:#2563eb,color:#102a43
+    classDef store fill:#e8f8f0,stroke:#16865b,color:#12372a
+    class C,P human
+    class A1,A2,A3 model
+    class R1,E,N1,N2,OUT deterministic
+    class DB store

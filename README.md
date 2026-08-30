@@ -54,7 +54,7 @@ been run repeatedly against production with no manual intervention.
 **Deferred (documented, not blocking)**: async triggering via Pub/Sub —
 matching runs synchronously inside the API request instead
 (`PUT /perfiles/{id}/cv`); PDF resume parsing and the Harvard-format CV
-generator. See `docs/rumbo-backlog.md` for the full backlog and priority.
+generator.
 
 ---
 
@@ -90,6 +90,12 @@ to Gemini on every call.
 Only over that narrowed set does the Fit Auditor run.
 
 ![Architecture](docs/architecture-diagram-en.png)
+
+Editable Mermaid sources:
+
+- [Firestore data model](docs/diagrams/rumbo-firestore.mmd)
+- [Agent pipeline](docs/diagrams/rumbo-pipeline.mmd)
+- [Consent state machine](docs/diagrams/rumbo-consent.mmd)
 
 ---
 
@@ -381,12 +387,39 @@ rumbo/
 ├── tests/                        # 50 tests, fake Firestore + fake Gemini
 └── docs/
     ├── architecture-diagram-en.png
+    ├── diagrams/                       # Mermaid sources for focused views
+    │   ├── rumbo-firestore.mmd
+    │   ├── rumbo-pipeline.mmd
+    │   └── rumbo-consent.mmd
     ├── rumbo-contrato-interfaces.md   # endpoint/field naming contract
     ├── rumbo-schema-bd.md             # Firestore schema, collection by collection
-    ├── rumbo-backlog.md               # full task backlog with priorities
     ├── rumbo-flujo-trabajo.md         # team workflow (branches, commits, credentials)
     └── rumbo-spec-tecnico.md          # technical spec / design rationale
 ```
+
+---
+
+## Devpost readiness checklist
+
+This repository is prepared for the **Taskmaster** category and documents the
+required Google stack: Gemini 3.5+, Google ADK, Firestore, and Cloud Run.
+
+| Requirement | Repository status |
+|---|---|
+| Public or private code repository | `https://github.com/MelZarate-science/Rumbo` |
+| Reproducible README setup | Ready: local setup, tests, seed data, and Cloud Run deployment are documented |
+| Architecture diagram | Present: `docs/architecture-diagram-en.png` plus editable Mermaid sources |
+| Hosted project URL | Present at the top of this README |
+| Taskmaster category | Confirmed in the project documentation |
+| Gemini 3.5+ and Google Agent Framework | Gemini 3.5 Flash through Google ADK is documented and configured |
+| Google Cloud infrastructure | Firestore and Cloud Run are documented and used |
+| Demo video of approximately four minutes | Pending in the Devpost project |
+| Proof of Google Cloud execution in the demo | Pending video evidence |
+| Final hackathon submission | Pending; the Devpost project is published but not submitted |
+
+The final Devpost entry still needs the demo video, architecture upload, and
+required submission-form answers. This checklist is informational only; it
+does not update or submit anything on Devpost.
 
 ---
 

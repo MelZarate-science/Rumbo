@@ -1,7 +1,7 @@
 # Rumbo (nombre a confirmar) — Propuesta v2
 ### All Things Agentic Hackathon 2026 · Track: Taskmaster
 
-> **Qué es este documento:** el spec del producto — explica *qué es* y *por qué* cada decisión. La capa de abajo es el backlog (qué tareas, en qué orden). Si este documento y el código no coinciden en una decisión de producto, gana este documento. Para nombres de campos y endpoints, la fuente de verdad es `rumbo-contrato-interfaces.md`; para estructura de datos, `rumbo-schema-bd.md`.
+> **Qué es este documento:** el spec del producto — explica *qué es* y *por qué* cada decisión. Si este documento y el código no coinciden en una decisión de producto, gana este documento. Para nombres de campos y endpoints, la fuente de verdad es `rumbo-contrato-interfaces.md`; para estructura de datos, `rumbo-schema-bd.md`.
 
 ---
 
@@ -109,6 +109,23 @@ Este es el corazón ético del producto, y la decisión de diseño más distinti
 
 **No hay agente coordinador.** El flujo es determinístico: siempre el mismo orden, sin decisiones de enrutamiento. La orquestación vive en `backend/pipeline/matching_pipeline.py` como código plano. Google documenta que el patrón de coordinador agrega llamadas al modelo, costo y latencia — usarlo acá sería complejidad sin beneficio.
 
+### Vista operativa
+
+```mermaid
+%% source: docs/diagrams/rumbo-pipeline.mmd
+flowchart LR
+    C[Company context + job post] --> A1[Role Classifier]
+    A1 --> A2[Requirement Extractor]
+    P[Profile CV] --> N1[Firestore find_nearest]
+    N1 --> N2[Filter by normalized role]
+    N2 --> A3[Fit Auditor]
+    A3 --> O[Match + score + roadmap]
+    A2 --> D[(Firestore)]
+    D --> N1
+```
+
+[Fuente editable del diagrama](diagrams/rumbo-pipeline.mmd).
+
 **Patrón:** secuencial multiagente + human-in-the-loop en dos puntos de control.
 
 ### Los tres agentes (los únicos que usan razonamiento del modelo)
@@ -139,7 +156,7 @@ Este es el corazón ético del producto, y la decisión de diseño más distinti
 | Framework de agentes | Google ADK |
 | Base de datos | Firestore, con soporte vectorial nativo (`find_nearest()`) |
 | Cómputo | Cloud Run |
-| Disparo del pipeline | Síncrono, dentro del mismo request HTTP (`PUT /perfiles/{id}/cv`). Pub/Sub queda diferido (backlog 2.11), todavía no implementado |
+| Disparo del pipeline | Síncrono, dentro del mismo request HTTP (`PUT /perfiles/{id}/cv`). Pub/Sub queda diferido |
 | Lenguaje | Python |
 
 **Evaluado y descartado para el MVP:** Cloud Talent Solution (potente, pero es infraestructura de producción y agrega setup que no aporta al scope de 8 días) y Spanner Graph (el grafo bipartito roles↔requisitos se resuelve con referencias simples en Firestore a este volumen). Ambos quedan como camino de evolución natural si el producto escala — vale mencionarlos en el pitch como decisiones conscientes, no como desconocimiento.
@@ -169,8 +186,7 @@ Candidatos: **Posta** · Rumbo · Encaje · Norte
 1. Nombre final del proyecto (bloquea naming de repo y servicios de Cloud Run, no el desarrollo).
 2. Umbral de fit para que un perfil aparezca en el mapa de la empresa — el 75% de la propuesta original es un valor tentativo, a validar con datos de prueba.
 3. Cuánto de la normalización de requisitos entra completo al MVP vs. queda simplificado si el tiempo aprieta.
-4. Reparto concreto de las fases del backlog entre los cuatro integrantes.
 
 ---
 
-*Este documento se mantiene alineado con `rumbo-schema-bd.md`, `rumbo-backlog.md`, `rumbo-contrato-interfaces.md` y `rumbo-flujo-trabajo.md`. Si se cambia una decisión de producto acá, hay que revisar si impacta en los otros cuatro.*
+*Este documento se mantiene alineado con `rumbo-schema-bd.md`, `rumbo-contrato-interfaces.md` y `rumbo-flujo-trabajo.md`. Si se cambia una decisión de producto acá, hay que revisar los documentos técnicos relacionados.*
