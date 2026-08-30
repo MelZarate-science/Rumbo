@@ -8,10 +8,10 @@ POST /matches/{match_id}/responder -> acción MANUAL del perfil (4.4)
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from models.match import EstadoMatch
-from routes.auth import usuario_actual
-from services.firestore_client import obtener
-from services.invitaciones import (
+from backend.models.match import EstadoMatch
+from backend.routes.auth import usuario_actual
+from backend.services.firestore_client import obtener
+from backend.services.invitaciones import (
     TransicionInvalidaError,
     enviar_invitacion,
     filtrar_campos_visibles,
@@ -68,7 +68,7 @@ def obtener_match(match_id: str):
         perfil_filtrado = {}
 
     # Visibilidad de empresa para el perfil
-    from services.invitaciones import es_empresa_visible
+    from backend.services.invitaciones import es_empresa_visible
     if es_empresa_visible(match["estado"]):
         empresa_para_perfil = empresa_info
     else:

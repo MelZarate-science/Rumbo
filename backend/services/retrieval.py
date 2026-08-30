@@ -10,8 +10,8 @@ Backlog: tareas 2.7 y 2.8
 
 import logging
 
-from services.embeddings import generar_embedding_perfil
-from services.firestore_client import buscar_vecinos, listar, obtener
+from backend.services.embeddings import generar_embedding_perfil
+from backend.services.firestore_client import buscar_vecinos, listar, obtener
 
 log = logging.getLogger(__name__)
 

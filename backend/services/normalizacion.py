@@ -6,7 +6,7 @@ los agentes 1 y 2 (Gemini), no acá.
 Backlog: tareas 2.3, 2.5, 2.6
 """
 
-from services.firestore_client import actualizar_transaccional
+from backend.services.firestore_client import actualizar_transaccional
 
 
 def actualizar_frecuencias(

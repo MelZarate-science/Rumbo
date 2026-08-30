@@ -12,13 +12,13 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from models.empresa import Empresa, EmpresaCreate, EmpresaUpdate
-from models.puesto import Puesto, PuestoCreate
-from pipeline.matching_pipeline import ejecutar_pipeline_indexado
-from routes.auth import usuario_actual
-from services.auth import crear_token, hashear_password
-from services.firestore_client import crear, listar, obtener
-from services.invitaciones import filtrar_campos_visibles
+from backend.models.empresa import Empresa, EmpresaCreate, EmpresaUpdate
+from backend.models.puesto import Puesto, PuestoCreate
+from backend.pipeline.matching_pipeline import ejecutar_pipeline_indexado
+from backend.routes.auth import usuario_actual
+from backend.services.auth import crear_token, hashear_password
+from backend.services.firestore_client import crear, listar, obtener
+from backend.services.invitaciones import filtrar_campos_visibles
 
 router = APIRouter(prefix="/empresas", tags=["empresas"])
 
@@ -78,7 +78,7 @@ def actualizar_empresa(empresa_id: str, cambios: EmpresaUpdate, sesion: dict = D
     if not updates:
         _error(status.HTTP_400_BAD_REQUEST, "No hay cambios válidos", "SIN_CAMBIOS")
     updates["updated_at"] = datetime.now(UTC)
-    from services.firestore_client import actualizar
+    from backend.services.firestore_client import actualizar
     actualizar("empresas", empresa_id, updates)
     data = obtener("empresas", empresa_id)
     data["empresa_id"] = empresa_id
@@ -145,7 +145,7 @@ def mapa_perfiles_empresa(empresa_id: str, puesto_id: str | None = None):
         return []
 
     # Buscar matches de esos puestos
-    from services.firestore_client import listar as _listar
+    from backend.services.firestore_client import listar as _listar
     matches = _listar("matches", {"puesto_id": puesto_ids})
 
     respuesta = []

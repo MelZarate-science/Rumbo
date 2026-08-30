@@ -15,11 +15,11 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from models.perfil import CvData, Perfil, PerfilCreate, PerfilUpdate
-from pipeline.matching_pipeline import ejecutar_pipeline_matching
-from routes.auth import usuario_actual
-from services.auth import crear_token, hashear_password
-from services.firestore_client import crear, listar, obtener
+from backend.models.perfil import CvData, Perfil, PerfilCreate, PerfilUpdate
+from backend.pipeline.matching_pipeline import ejecutar_pipeline_matching
+from backend.routes.auth import usuario_actual
+from backend.services.auth import crear_token, hashear_password
+from backend.services.firestore_client import crear, listar, obtener
 
 router = APIRouter(prefix="/perfiles", tags=["perfiles"])
 
@@ -78,7 +78,7 @@ def actualizar_perfil(perfil_id: str, cambios: PerfilUpdate, sesion: dict = Depe
     if not updates:
         _error(status.HTTP_400_BAD_REQUEST, "No hay cambios válidos", "SIN_CAMBIOS")
     updates["updated_at"] = datetime.now(UTC)
-    from services.firestore_client import actualizar
+    from backend.services.firestore_client import actualizar
     actualizar("perfiles", perfil_id, updates)
     data = obtener("perfiles", perfil_id)
     data["perfil_id"] = perfil_id
@@ -100,7 +100,7 @@ def actualizar_cv(perfil_id: str, cv: CvData, sesion: dict = Depends(usuario_act
 
     updates = cv.model_dump(mode="python", exclude_none=True)
     updates["updated_at"] = datetime.now(UTC)
-    from services.firestore_client import actualizar
+    from backend.services.firestore_client import actualizar
     actualizar("perfiles", perfil_id, updates)
 
     # Disparar matching (síncrono en MVP)

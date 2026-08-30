@@ -7,8 +7,8 @@ Backlog: tareas 2.2 y 2.4
 
 import logging
 
-from services import gemini_client
-from services.firestore_client import guardar_embedding, obtener
+from backend.services import gemini_client
+from backend.services.firestore_client import guardar_embedding, obtener
 
 log = logging.getLogger(__name__)
 

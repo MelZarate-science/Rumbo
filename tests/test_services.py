@@ -4,7 +4,7 @@ Tests de servicios: invitaciones (visibilidad + estados) y auditor_fit.
 
 import pytest
 
-from services.invitaciones import (
+from backend.services.invitaciones import (
     TransicionInvalidaError,
     enviar_invitacion,
     es_empresa_visible,
@@ -12,9 +12,9 @@ from services.invitaciones import (
     procesar_respuesta,
 )
 from agents.auditor_fit import calcular_score_y_roadmap
-from models.match import EstadoMatch
-from models.perfil import Perfil
-from services.firestore_client import crear, obtener
+from backend.models.match import EstadoMatch
+from backend.models.perfil import Perfil
+from backend.services.firestore_client import crear, obtener
 
 
 def _crear_perfil_test():
@@ -30,17 +30,17 @@ def _crear_perfil_test():
 
 
 def _crear_puesto_test(empresa_id: str, titulo: str, desc: str):
-    from models.puesto import Puesto
+    from backend.models.puesto import Puesto
     p = Puesto(empresa_id=empresa_id, titulo=titulo, descripcion=desc)
     pid = crear("puestos", p.model_dump(mode="python", exclude_none=True))
     # Indexar
-    from pipeline.matching_pipeline import ejecutar_pipeline_indexado
+    from backend.pipeline.matching_pipeline import ejecutar_pipeline_indexado
     ejecutar_pipeline_indexado(pid)
     return pid
 
 
 def _crear_empresa_test():
-    from models.empresa import Empresa
+    from backend.models.empresa import Empresa
     e = Empresa(nombre_empresa="TestCo", contexto="Test", email_registro="hr@test.com")
     return crear("empresas", e.model_dump(mode="python", exclude_none=True))
 
@@ -83,7 +83,7 @@ class TestInvitaciones:
         eid = _crear_empresa_test()
         pid = _crear_perfil_test()
         pid_puesto = _crear_puesto_test(eid, "Backend", "Python, FastAPI")
-        from pipeline.matching_pipeline import ejecutar_pipeline_matching
+        from backend.pipeline.matching_pipeline import ejecutar_pipeline_matching
         matches = ejecutar_pipeline_matching(pid)
         assert matches
         mid = matches[0]
@@ -95,7 +95,7 @@ class TestInvitaciones:
         eid = _crear_empresa_test()
         pid = _crear_perfil_test()
         pid_puesto = _crear_puesto_test(eid, "Backend", "Python")
-        from pipeline.matching_pipeline import ejecutar_pipeline_matching
+        from backend.pipeline.matching_pipeline import ejecutar_pipeline_matching
         matches = ejecutar_pipeline_matching(pid)
         mid = matches[0]
 
@@ -107,7 +107,7 @@ class TestInvitaciones:
         eid = _crear_empresa_test()
         pid = _crear_perfil_test()
         pid_puesto = _crear_puesto_test(eid, "Backend", "Python")
-        from pipeline.matching_pipeline import ejecutar_pipeline_matching
+        from backend.pipeline.matching_pipeline import ejecutar_pipeline_matching
         matches = ejecutar_pipeline_matching(pid)
         mid = matches[0]
 
@@ -119,7 +119,7 @@ class TestInvitaciones:
         eid = _crear_empresa_test()
         pid = _crear_perfil_test()
         pid_puesto = _crear_puesto_test(eid, "Backend", "Python")
-        from pipeline.matching_pipeline import ejecutar_pipeline_matching
+        from backend.pipeline.matching_pipeline import ejecutar_pipeline_matching
         matches = ejecutar_pipeline_matching(pid)
         mid = matches[0]
 
@@ -131,7 +131,7 @@ class TestInvitaciones:
         eid = _crear_empresa_test()
         pid = _crear_perfil_test()
         pid_puesto = _crear_puesto_test(eid, "Backend", "Python")
-        from pipeline.matching_pipeline import ejecutar_pipeline_matching
+        from backend.pipeline.matching_pipeline import ejecutar_pipeline_matching
         matches = ejecutar_pipeline_matching(pid)
         mid = matches[0]
 
@@ -152,7 +152,7 @@ class TestAuditorFit:
         pid = _crear_perfil_test()
         # Puesto que solo pide justo lo que el perfil ya tiene
         pid_puesto = _crear_puesto_test(eid, "Python", "Python y FastAPI")
-        from pipeline.matching_pipeline import ejecutar_pipeline_matching
+        from backend.pipeline.matching_pipeline import ejecutar_pipeline_matching
         matches = ejecutar_pipeline_matching(pid)
         assert matches
         mid = matches[0]
@@ -162,7 +162,7 @@ class TestAuditorFit:
     def test_score_bajo_no_cumple(self):
         eid = _crear_empresa_test()
         # Perfil con algunas habilidades que solapen parcialmente
-        from models.perfil import Perfil
+        from backend.models.perfil import Perfil
         p = Perfil(
             nombre="Juan",
             apellido="Perez",
@@ -173,7 +173,7 @@ class TestAuditorFit:
 
         # Puesto con Python (match) y Django (no match)
         pid_puesto = _crear_puesto_test(eid, "Backend Python", "Python Django APIs")
-        from pipeline.matching_pipeline import ejecutar_pipeline_matching
+        from backend.pipeline.matching_pipeline import ejecutar_pipeline_matching
         matches = ejecutar_pipeline_matching(pid)
         assert matches
         mid = matches[0]
@@ -185,7 +185,7 @@ class TestAuditorFit:
         eid = _crear_empresa_test()
         pid = _crear_perfil_test()
         pid_puesto = _crear_puesto_test(eid, "Backend Python", "Python FastAPI Terraform")
-        from pipeline.matching_pipeline import ejecutar_pipeline_matching
+        from backend.pipeline.matching_pipeline import ejecutar_pipeline_matching
         matches = ejecutar_pipeline_matching(pid)
         mid = matches[0]
         match = obtener("matches", mid)
@@ -213,7 +213,7 @@ class TestAuditorFit:
         _crear_puesto_test(eid, "Backend Python", "Python")
         pid_puesto = _crear_puesto_test(eid, "Backend Python", "Python QuasarFramework")
 
-        from pipeline.matching_pipeline import ejecutar_pipeline_matching
+        from backend.pipeline.matching_pipeline import ejecutar_pipeline_matching
         matches = ejecutar_pipeline_matching(pid)
         assert matches
         match = next(m for m in (obtener("matches", mid) for mid in matches) if m["puesto_id"] == pid_puesto)
@@ -292,9 +292,9 @@ class TestFrecuencias:
         assert obtener("roles_normalizados", rol_id)["cantidad_puestos"] == 1
 
         # Reindexar el mismo puesto pidiendo MENOS requisitos que antes.
-        from services.firestore_client import actualizar as _actualizar
+        from backend.services.firestore_client import actualizar as _actualizar
         _actualizar("puestos", pid_puesto, {"titulo": "Backend Python", "descripcion": "Python"})
-        from pipeline.matching_pipeline import ejecutar_pipeline_indexado
+        from backend.pipeline.matching_pipeline import ejecutar_pipeline_indexado
         ejecutar_pipeline_indexado(pid_puesto)
 
         rol = obtener("roles_normalizados", rol_id)
