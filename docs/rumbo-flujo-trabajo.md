@@ -14,9 +14,11 @@ rumbo/
 ├── Dockerfile                   # imagen para desplegar en Cloud Run
 ├── .env.example                 # plantilla de variables de entorno, sin valores reales
 ├── .gitignore                   # incluye .env, __pycache__/, *.pyc, credenciales locales
-├── main.py                      # entrypoint FastAPI (expone el backend en Cloud Run)
+├── main.py                      # wrapper de una línea: `from backend.main import app` —
+│                                 # así `uvicorn main:app` sigue funcionando sin tocar el Dockerfile
 │
-├── agents/                      # SOLO los agentes que usan razonamiento de Gemini
+├── agents/                      # SOLO los agentes que usan razonamiento de Gemini — vive
+│   │                             # fuera de backend/ a propósito, es su propio bloque
 │   ├── clasificador_roles.py    # Agente 1 — asigna el puesto a un rol normalizado
 │   ├── extractor_requisitos.py  # Agente 2 — extrae requisitos y actualiza frecuencias
 │   ├── auditor_fit.py           # Agente 3 — score + roadmap cuantitativo
@@ -26,33 +28,38 @@ rumbo/
 │       ├── extractor_requisitos_paso2_prompt.txt  # reconciliación batcheada de lo ambiguo
 │       └── auditor_fit_prompt.txt
 │
-├── pipeline/
-│   └── matching_pipeline.py     # orquestación en código plano — NO es un agente:
-│                                # la secuencia es fija, ningún modelo decide el enrutamiento
+├── backend/                     # FastAPI: rutas, modelos, servicios, entrypoint real
+│   ├── main.py                  # entrypoint real (expone el backend en Cloud Run)
+│   │
+│   ├── pipeline/
+│   │   └── matching_pipeline.py # orquestación en código plano — NO es un agente:
+│   │                             # la secuencia es fija, ningún modelo decide el enrutamiento
+│   │
+│   ├── services/                # lógica sin razonamiento de modelo
+│   │   ├── firestore_client.py  # único punto de acceso a Firestore
+│   │   ├── gemini_client.py     # único punto de acceso a Gemini
+│   │   ├── embeddings.py        # generación de embeddings (perfil, roles, requisitos)
+│   │   ├── retrieval.py         # retrieval de dos niveles (find_nearest + filtro por rol)
+│   │   ├── normalizacion.py     # frecuencias de requisitos por rol (transaccional)
+│   │   ├── invitaciones.py      # ciclo de vida del match y visibilidad escalonada
+│   │   ├── auth.py              # hash de password + tokens de sesión
+│   │   └── cv_generator.py      # generación del CV en formato Harvard (Fase 3, sin implementar)
+│   │
+│   ├── models/                  # una clase por colección, reflejando el esquema de datos
+│   │   ├── perfil.py
+│   │   ├── empresa.py
+│   │   ├── puesto.py
+│   │   └── match.py             # solo el enum `EstadoMatch` — el resto del schema vive
+│   │                             # en dicts planos, no hay modelos Pydantic muertos acá
+│   │
+│   └── routes/                  # endpoints HTTP expuestos por el backend
+│       ├── auth.py
+│       ├── perfiles.py
+│       ├── empresas.py
+│       ├── puestos.py
+│       └── matches.py
 │
-├── services/                    # lógica sin razonamiento de modelo
-│   ├── firestore_client.py      # único punto de acceso a Firestore
-│   ├── embeddings.py            # generación de embeddings (perfil, roles normalizados)
-│   ├── retrieval.py             # retrieval de dos niveles (find_nearest + filtro por rol)
-│   ├── normalizacion.py         # helpers de roles y frecuencias de requisitos
-│   ├── invitaciones.py          # ciclo de vida del match y visibilidad escalonada
-│   └── cv_generator.py          # generación del CV en formato Harvard
-│
-├── models/                      # una clase por colección, reflejando el esquema de datos
-│   ├── perfil.py
-│   ├── empresa.py
-│   ├── puesto.py
-│   ├── match.py
-│   ├── rol_normalizado.py
-│   └── requisito_normalizado.py
-│
-├── routes/                      # endpoints HTTP expuestos por el backend
-│   ├── perfiles.py
-│   ├── empresas.py
-│   ├── puestos.py
-│   └── matches.py
-│
-├── frontend/                    # interfaz mínima
+├── frontend/                    # React + Vite, servido desde el mismo backend en `/app/`
 │
 ├── scripts/
 │   └── seed_data.py             # poblar datos ficticios (tarea 2.1 del backlog)
@@ -60,7 +67,7 @@ rumbo/
 ├── tests/                       # pruebas, aunque sean básicas
 │
 └── docs/
-    ├── architecture-diagram.png
+    ├── architecture-diagram-en.png
     └── (copia de los documentos del equipo)
 ```
 
@@ -105,7 +112,7 @@ Un commit no tiene que ser perfecto, pero sí tiene que explicar qué cambió y 
 
 ### Manejo de conflictos de merge
 
-La prevención va antes que la resolución: si el scope de cada tarea del backlog está bien delimitado y nadie toca el trabajo de otro sin coordinar, los conflictos deberían ser raros. Si aparece uno igual, se resuelve **antes** de pushear (ver regla 3 arriba), nunca dejándolo para que lo encuentre quien revisa el PR. Si el conflicto es en un archivo compartido pesado (por ejemplo, algo dentro de `models/`), avisar por el canal del equipo antes de forzar la resolución — puede ser señal de que dos tareas se solapan y conviene reordenar el backlog, no solo resolver el conflicto puntual.
+La prevención va antes que la resolución: si el scope de cada tarea del backlog está bien delimitado y nadie toca el trabajo de otro sin coordinar, los conflictos deberían ser raros. Si aparece uno igual, se resuelve **antes** de pushear (ver regla 3 arriba), nunca dejándolo para que lo encuentre quien revisa el PR. Si el conflicto es en un archivo compartido pesado (por ejemplo, algo dentro de `backend/models/`), avisar por el canal del equipo antes de forzar la resolución — puede ser señal de que dos tareas se solapan y conviene reordenar el backlog, no solo resolver el conflicto puntual.
 
 ---
 

@@ -37,7 +37,7 @@ sees the other until there is explicit consent.
 | Two-level retrieval (`find_nearest()` + filter) | ✅ |
 | Match persistence with staged visibility | ✅ |
 | Invite / accept / reject lifecycle | ✅ |
-| Tests (45) with in-memory fake Firestore + fake Gemini | ✅ |
+| Tests (50) with in-memory fake Firestore + fake Gemini | ✅ |
 
 **Still deferred**: Pub/Sub async trigger on profile registration (matching runs
 synchronously from `PUT /perfiles/{id}/cv` instead — backlog 2.11, low priority),
@@ -95,7 +95,7 @@ profile against twenty near-identical "Product Manager" postings.
 > **Nota**: `google-cloud-pubsub` está en `requirements.txt` para el disparo
 > asíncrono (backlog 2.11), diferido por prioridad — hoy el matching corre
 > síncrono. `google-genai` (Gemini) y los embeddings sí se usan de verdad
-> en el MVP — ver `services/gemini_client.py`.
+> en el MVP — ver `backend/services/gemini_client.py`.
 
 ---
 
@@ -235,7 +235,7 @@ curl http://localhost:8080/health
 | `confirmado` | ✅ | ✅ |
 | `rechazado` | ✅ | ❌ |
 
-La lógica vive en `services/invitaciones.py` (`filtrar_campos_visibles`,
+La lógica vive en `backend/services/invitaciones.py` (`filtrar_campos_visibles`,
 `es_empresa_visible`).
 
 ---
@@ -256,13 +256,18 @@ gcloud run deploy rumbo-dev \
 ```
 
 Variables mínimas que necesita el servicio: `GOOGLE_CLOUD_PROJECT`,
-`FIRESTORE_DATABASE_ID`, `GEMINI_API_KEY`, `GEMINI_MODEL_FLASH`,
-`GEMINI_EMBEDDING_MODEL`, `AUTH_SECRET_KEY`, `UMBRAL_FIT_MINIMO` — ver
-`.env.example`. El frontend queda servido en `<service-url>/app/`.
+`GOOGLE_GENAI_USE_VERTEXAI=True`, `GOOGLE_CLOUD_LOCATION`,
+`FIRESTORE_DATABASE_ID`, `GEMINI_MODEL_FLASH`, `GEMINI_EMBEDDING_MODEL`,
+`AUTH_SECRET_KEY`, `UMBRAL_FIT_MINIMO` — ver `.env.example`. `GEMINI_API_KEY`
+es opcional y solo hace falta si en algún momento se quiere forzar la capa
+gratuita de Google AI Studio en vez de Vertex AI (ver `services/gemini_client.py`);
+dejarla vacía es lo esperado en este proyecto. El frontend queda servido en
+`<service-url>/app/`.
 
-Automatic deployment via Cloud Build:
-- push to `develop` → deploys to `rumbo-dev`
-- push to `main` → deploys to `rumbo-prod`
+Deploy automático vía Cloud Build todavía no está configurado (backlog 0.9) —
+por ahora el deploy es manual con el comando de arriba, contra la rama `Dev`
+en GitHub (que es la rama de integración real del equipo, más allá de que
+`develop` exista como nombre en el repo).
 
 ---
 
@@ -310,7 +315,7 @@ rumbo/
 
 - No one pushes directly to `main` or `develop`. Every change starts on a
   `feature/<task-id>-<description>` branch against `develop`.
-- No one calls Firestore outside of `services/firestore_client.py`.
+- No one calls Firestore outside of `backend/services/firestore_client.py`.
 - Field, endpoint, and function names are fixed in the interface contract.
   If a new one is needed, it's added there first and the team is notified.
 - No credentials in code or in commits.

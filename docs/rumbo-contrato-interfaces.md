@@ -41,7 +41,7 @@ misma respuesta — es login automático al crear la cuenta, no hace falta
 loguearse aparte después de registrarse. El token va en
 `Authorization: Bearer <token>` en cada endpoint que lo exige (ver columna
 "Requiere sesión" abajo). Formato del token: HMAC firmado con
-`AUTH_SECRET_KEY`, expira a los 7 días — ver `services/auth.py`.
+`AUTH_SECRET_KEY`, expira a los 7 días — ver `backend/services/auth.py`.
 
 ### Perfiles
 
@@ -85,30 +85,30 @@ Cada módulo del backend expone funciones con nombres predecibles — así, quie
 | Módulo | Función | Qué hace | ¿Usa Gemini? |
 |---|---|---|---|
 | `agents/clasificador_roles.py` | `clasificar_puesto(puesto_id)` | Asigna `rol_normalizado_id` al puesto (crea el rol si no existe uno cercano). El catálogo que ve Gemini es un pre-filtro por embedding (`find_nearest()`, top 8), no `roles_normalizados` entero | ✅ sí |
-| `agents/extractor_requisitos.py` | `extraer_requisitos(puesto_id)` | Extrae requisitos discretos (llamada 1, sin catálogo) y los reconcilia contra `requisitos_normalizados` en cascada: match exacto por string normalizado → shortlist por embedding → solo lo ambiguo se manda a Gemini (llamada 2, batcheada). Actualiza frecuencias vía `services/normalizacion.py` | ✅ sí |
+| `agents/extractor_requisitos.py` | `extraer_requisitos(puesto_id)` | Extrae requisitos discretos (llamada 1, sin catálogo) y los reconcilia contra `requisitos_normalizados` en cascada: match exacto por string normalizado → shortlist por embedding → solo lo ambiguo se manda a Gemini (llamada 2, batcheada). Actualiza frecuencias vía `backend/services/normalizacion.py` | ✅ sí |
 | `agents/auditor_fit.py` | `calcular_score_y_roadmap(perfil_id, puesto_id)` | Devuelve `{score, roadmap, justificacion}` — `roadmap` con la subestructura de maps del esquema, nunca strings sueltos | ✅ sí |
-| `pipeline/matching_pipeline.py` | `ejecutar_pipeline_matching(perfil_id)` | Corre el retrieval de dos niveles y dispara el auditor por cada puesto candidato. **No es un agente**: secuencia fija en código | ❌ no |
-| `pipeline/matching_pipeline.py` | `ejecutar_pipeline_indexado(puesto_id)` | Al cargarse un puesto: lo clasifica y le extrae los requisitos | ❌ no |
-| `services/retrieval.py` | `buscar_roles_afines(perfil_id)` | **Nivel 1**: `find_nearest()` del embedding del perfil contra `roles_normalizados`. Devuelve lista de `rol_normalizado_id` | ❌ no |
-| `services/retrieval.py` | `buscar_puestos_de_roles(roles_ids)` | **Nivel 2**: filtro simple de `puestos` por `rol_normalizado_id`. Devuelve lista de `puesto_id` | ❌ no |
-| `services/invitaciones.py` | `enviar_invitacion(match_id)` / `procesar_respuesta(match_id, aceptar)` | Cambia el `estado` del match y gestiona qué campos se revelan a cada lado | ❌ no |
-| `services/invitaciones.py` | `filtrar_campos_visibles(perfil, estado_match)` | Aplica la regla de visibilidad escalonada sobre un perfil | ❌ no |
-| `services/embeddings.py` | `generar_embedding(texto)` / `generar_embedding_perfil(perfil_id)` / `generar_embedding_rol(rol_id)` / `generar_embedding_requisito(requisito_id)` | Genera el embedding (vía `gemini_client`) y lo guarda en Firestore como `Vector` | ❌ no* |
-| `services/normalizacion.py` | `actualizar_frecuencias(rol_id, puesto_id, requisitos_ids_nuevos, requisitos_ids_viejos=None)` | Actualiza la tabla de frecuencias del rol dentro de una transacción de Firestore (`actualizar_transaccional`). `puesto_id` se usa para contar `cantidad_puestos` por set real de puestos, no por delta de requisitos. El cuarto parámetro (opcional) es para reindexado idempotente cuando un puesto se edita | ❌ no |
-| `services/firestore_client.py` | `obtener(coleccion, doc_id)` / `crear(coleccion, datos)` / `actualizar(coleccion, doc_id, datos)` / `listar(coleccion, filtros)` | Wrappers genéricos, usados por todos los módulos | ❌ no |
-| `services/firestore_client.py` | `guardar_embedding(coleccion, doc_id, campo, valores)` | Envuelve `valores` como `Vector` de Firestore y lo guarda — requerido para que `find_nearest()` funcione | ❌ no |
-| `services/firestore_client.py` | `buscar_vecinos(coleccion, campo_vector, vector, limite=3, umbral_distancia=None)` | `find_nearest()` — devuelve los documentos más cercanos por similitud coseno. `umbral_distancia` (opcional) descarta candidatos por debajo de cierta similitud, para no forzar `limite` resultados cuando ninguno es relevante | ❌ no |
-| `services/firestore_client.py` | `actualizar_transaccional(coleccion, doc_id, fn)` | Lee, transforma (`fn(datos_actuales) -> cambios`) y escribe un documento dentro de una transacción de Firestore — evita que dos escrituras concurrentes sobre el mismo documento se pisen en silencio | ❌ no |
-| `services/gemini_client.py` | `generar_json(system_instruction, contents, response_schema, model=None, temperature=0.0)` | Único punto de acceso a Gemini para los 3 agentes: llama al modelo y devuelve la respuesta ya parseada como el modelo Pydantic de `response_schema` | ✅ sí |
-| `services/gemini_client.py` | `generar_embedding_vector(texto, model=None)` | Llamada real a la API de embeddings (Google AI Studio o Vertex AI, según `GEMINI_API_KEY`) | ✅ sí |
-| `services/cv_generator.py` | `generar_cv_harvard(cv_data, busqueda_interes=None)` | Devuelve el texto del CV formateado | ✅ sí |
-| `services/auth.py` | `hashear_password(password)` / `verificar_password(password, hash)` | PBKDF2-HMAC-SHA256 con salt aleatorio | ❌ no |
-| `services/auth.py` | `crear_token(sujeto_id, tipo)` / `verificar_token(token)` | Token de sesión firmado con HMAC (`AUTH_SECRET_KEY`), expira a los 7 días | ❌ no |
-| `routes/auth.py` | `usuario_actual(authorization)` | Dependency de FastAPI: exige `Authorization: Bearer <token>` válido, devuelve `{sub, tipo, exp}` | ❌ no |
+| `backend/pipeline/matching_pipeline.py` | `ejecutar_pipeline_matching(perfil_id)` | Corre el retrieval de dos niveles y dispara el auditor por cada puesto candidato. **No es un agente**: secuencia fija en código | ❌ no |
+| `backend/pipeline/matching_pipeline.py` | `ejecutar_pipeline_indexado(puesto_id)` | Al cargarse un puesto: lo clasifica y le extrae los requisitos | ❌ no |
+| `backend/services/retrieval.py` | `buscar_roles_afines(perfil_id)` | **Nivel 1**: `find_nearest()` del embedding del perfil contra `roles_normalizados`. Devuelve lista de `rol_normalizado_id` | ❌ no |
+| `backend/services/retrieval.py` | `buscar_puestos_de_roles(roles_ids)` | **Nivel 2**: filtro simple de `puestos` por `rol_normalizado_id`. Devuelve lista de `puesto_id` | ❌ no |
+| `backend/services/invitaciones.py` | `enviar_invitacion(match_id)` / `procesar_respuesta(match_id, aceptar)` | Cambia el `estado` del match y gestiona qué campos se revelan a cada lado | ❌ no |
+| `backend/services/invitaciones.py` | `filtrar_campos_visibles(perfil, estado_match)` | Aplica la regla de visibilidad escalonada sobre un perfil | ❌ no |
+| `backend/services/embeddings.py` | `generar_embedding(texto)` / `generar_embedding_perfil(perfil_id)` / `generar_embedding_rol(rol_id)` / `generar_embedding_requisito(requisito_id)` | Genera el embedding (vía `gemini_client`) y lo guarda en Firestore como `Vector` | ❌ no* |
+| `backend/services/normalizacion.py` | `actualizar_frecuencias(rol_id, puesto_id, requisitos_ids_nuevos, requisitos_ids_viejos=None)` | Actualiza la tabla de frecuencias del rol dentro de una transacción de Firestore (`actualizar_transaccional`). `puesto_id` se usa para contar `cantidad_puestos` por set real de puestos, no por delta de requisitos. El cuarto parámetro (opcional) es para reindexado idempotente cuando un puesto se edita | ❌ no |
+| `backend/services/firestore_client.py` | `obtener(coleccion, doc_id)` / `crear(coleccion, datos)` / `actualizar(coleccion, doc_id, datos)` / `listar(coleccion, filtros)` | Wrappers genéricos, usados por todos los módulos | ❌ no |
+| `backend/services/firestore_client.py` | `guardar_embedding(coleccion, doc_id, campo, valores)` | Envuelve `valores` como `Vector` de Firestore y lo guarda — requerido para que `find_nearest()` funcione | ❌ no |
+| `backend/services/firestore_client.py` | `buscar_vecinos(coleccion, campo_vector, vector, limite=3, umbral_distancia=None)` | `find_nearest()` — devuelve los documentos más cercanos por similitud coseno. `umbral_distancia` (opcional) descarta candidatos por debajo de cierta similitud, para no forzar `limite` resultados cuando ninguno es relevante | ❌ no |
+| `backend/services/firestore_client.py` | `actualizar_transaccional(coleccion, doc_id, fn)` | Lee, transforma (`fn(datos_actuales) -> cambios`) y escribe un documento dentro de una transacción de Firestore — evita que dos escrituras concurrentes sobre el mismo documento se pisen en silencio | ❌ no |
+| `backend/services/gemini_client.py` | `generar_json(system_instruction, contents, response_schema, model=None, temperature=0.0)` | Único punto de acceso a Gemini para los 3 agentes: llama al modelo y devuelve la respuesta ya parseada como el modelo Pydantic de `response_schema` | ✅ sí |
+| `backend/services/gemini_client.py` | `generar_embedding_vector(texto, model=None)` | Llamada real a la API de embeddings (Google AI Studio o Vertex AI, según `GEMINI_API_KEY`) | ✅ sí |
+| `backend/services/cv_generator.py` | `generar_cv_harvard(cv_data, busqueda_interes=None)` | Devuelve el texto del CV formateado | ✅ sí |
+| `backend/services/auth.py` | `hashear_password(password)` / `verificar_password(password, hash)` | PBKDF2-HMAC-SHA256 con salt aleatorio | ❌ no |
+| `backend/services/auth.py` | `crear_token(sujeto_id, tipo)` / `verificar_token(token)` | Token de sesión firmado con HMAC (`AUTH_SECRET_KEY`), expira a los 7 días | ❌ no |
+| `backend/routes/auth.py` | `usuario_actual(authorization)` | Dependency de FastAPI: exige `Authorization: Bearer <token>` válido, devuelve `{sub, tipo, exp}` | ❌ no |
 
-**Sobre la columna "¿Usa Gemini?":** solo lo que está en `agents/` (más el generador de CV) hace llamadas de *razonamiento* al modelo — decisiones, criterio, texto libre. `services/embeddings.py` sí llama a Gemini por debajo (vía `gemini_client.py`) pero es una transformación mecánica (texto → vector), no una decisión — por eso está marcado con *. Todo lo demás es determinístico — esa separación es deliberada y es lo que mantiene bajo el costo y la latencia del sistema.
+**Sobre la columna "¿Usa Gemini?":** solo lo que está en `agents/` (más el generador de CV) hace llamadas de *razonamiento* al modelo — decisiones, criterio, texto libre. `backend/services/embeddings.py` sí llama a Gemini por debajo (vía `gemini_client.py`) pero es una transformación mecánica (texto → vector), no una decisión — por eso está marcado con *. Todo lo demás es determinístico — esa separación es deliberada y es lo que mantiene bajo el costo y la latencia del sistema.
 
-**Regla de oro:** nadie llama a Firestore directamente desde un endpoint o un agente — siempre a través de `services/firestore_client.py`. Esto evita que cada integrante escriba su propia forma de leer/escribir la misma colección.
+**Regla de oro:** nadie llama a Firestore directamente desde un endpoint o un agente — siempre a través de `backend/services/firestore_client.py`. Esto evita que cada integrante escriba su propia forma de leer/escribir la misma colección.
 
 ---
 
