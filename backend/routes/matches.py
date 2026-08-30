@@ -109,11 +109,6 @@ def invitar_match(match_id: str, sesion: dict = Depends(usuario_actual)):
     return match
 
 
-class ResponderBody(dict):
-    """Body simple: {"aceptar": true|false}"""
-    aceptar: bool
-
-
 @router.post("/{match_id}/responder")
 def responder_match(match_id: str, body: dict, sesion: dict = Depends(usuario_actual)):
     """

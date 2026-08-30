@@ -107,7 +107,7 @@ Este es el corazón ético del producto, y la decisión de diseño más distinti
                           (manual)                (manual)
 ```
 
-**No hay agente coordinador.** El flujo es determinístico: siempre el mismo orden, sin decisiones de enrutamiento. La orquestación vive en `pipeline/matching_pipeline.py` como código plano. Google documenta que el patrón de coordinador agrega llamadas al modelo, costo y latencia — usarlo acá sería complejidad sin beneficio.
+**No hay agente coordinador.** El flujo es determinístico: siempre el mismo orden, sin decisiones de enrutamiento. La orquestación vive en `backend/pipeline/matching_pipeline.py` como código plano. Google documenta que el patrón de coordinador agrega llamadas al modelo, costo y latencia — usarlo acá sería complejidad sin beneficio.
 
 **Patrón:** secuencial multiagente + human-in-the-loop en dos puntos de control.
 
