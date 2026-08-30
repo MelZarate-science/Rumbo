@@ -36,11 +36,15 @@ def _coseno(a: list[float], b: list[float]) -> float:
 class _FakeVectorQuery:
     """Simula `find_nearest()`: ordena por similitud coseno, sin índice real."""
 
-    def __init__(self, collection: "FakeCollection", vector_field: str, query_vector, limit: int):
+    def __init__(
+        self, collection: "FakeCollection", vector_field: str, query_vector, limit: int,
+        distance_threshold: float | None = None,
+    ):
         self._collection = collection
         self._vector_field = vector_field
         self._query_vector = list(query_vector)
         self._limit = limit
+        self._distance_threshold = distance_threshold
 
     def stream(self):
         candidatos = []
@@ -49,6 +53,9 @@ class _FakeVectorQuery:
             if not valor:
                 continue
             similitud = _coseno(list(valor), self._query_vector)
+            distancia = 1 - similitud  # aproximación de distancia coseno, alcanza para el fake
+            if self._distance_threshold is not None and distancia > self._distance_threshold:
+                continue
             candidatos.append((similitud, doc))
         candidatos.sort(key=lambda c: c[0], reverse=True)
         for _, doc in candidatos[: self._limit]:
@@ -104,7 +111,7 @@ class FakeDocumentRef:
     def id(self) -> str:
         return self._id
 
-    def get(self) -> FakeDocumentSnapshot:
+    def get(self, transaction=None) -> FakeDocumentSnapshot:
         if self._id is None or self._id not in self._collection._docs:
             snap = FakeDocumentSnapshot("", {})
             snap.exists = False
@@ -139,8 +146,11 @@ class FakeCollection:
     def where(self, field: str, op: str, value: Any) -> _FakeQuery:
         return _FakeQuery(self).where(field, op, value)
 
-    def find_nearest(self, vector_field: str, query_vector, limit: int, distance_measure=None, **kwargs) -> _FakeVectorQuery:
-        return _FakeVectorQuery(self, vector_field, query_vector, limit)
+    def find_nearest(
+        self, vector_field: str, query_vector, limit: int, distance_measure=None,
+        distance_threshold: float | None = None, **kwargs,
+    ) -> _FakeVectorQuery:
+        return _FakeVectorQuery(self, vector_field, query_vector, limit, distance_threshold)
 
     def stream(self):
         for doc in self._docs.values():
@@ -148,6 +158,38 @@ class FakeCollection:
 
     def clear(self):
         self._docs.clear()
+
+
+class FakeTransaction:
+    """
+    Fake mínimo de `Transaction`: el decorador real `firestore.transactional`
+    (se importa el módulo real del SDK, no un doble) maneja su propio ciclo
+    de vida contra este objeto -- alcanza con exponer los métodos que llama
+    (`_clean_up`, `_begin`, `_commit`, `_rollback`) y los atributos que lee
+    (`_max_attempts`, `_read_only`). No hay concurrencia real que resolver en
+    el fake (un solo proceso, en memoria): las escrituras de `update()` se
+    aplican directo, sin buffer ni conflicto posible dentro de un test.
+    """
+    _max_attempts = 5
+    _read_only = False
+
+    def __init__(self):
+        self._id = None
+
+    def _clean_up(self):
+        pass
+
+    def _begin(self, retry_id=None):
+        self._id = retry_id or "fake-tx"
+
+    def _commit(self):
+        pass
+
+    def _rollback(self):
+        pass
+
+    def update(self, ref: FakeDocumentRef, data: dict) -> None:
+        ref.update(data)
 
 
 class FakeFirestore:
@@ -159,6 +201,9 @@ class FakeFirestore:
         if name not in self._collections:
             self._collections[name] = FakeCollection(name, self)
         return self._collections[name]
+
+    def transaction(self) -> FakeTransaction:
+        return FakeTransaction()
 
     def clear_all(self):
         for coll in self._collections.values():

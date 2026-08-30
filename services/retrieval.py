@@ -15,6 +15,24 @@ from services.firestore_client import buscar_vecinos, listar, obtener
 
 log = logging.getLogger(__name__)
 
+_UMBRAL_DISTANCIA_ROL = 0.40
+"""
+Distancia coseno máxima (0 = idéntico, 2 = opuesto) para considerar un rol
+remotamente relevante para un perfil. Sin este piso, `find_nearest()` siempre
+devolvía los `limite` roles "más cercanos" que hubiera, aunque el perfil no
+tuviera nada que ver con ninguno.
+
+Calibrado con datos reales (no adivinado): en la corrida de seed contra
+Vertex AI con 6 perfiles x 6 roles, los roles genuinamente afines a cada
+perfil cayeron entre 0.21 y 0.40 de distancia, y los roles claramente ajenos
+(ej. "Product Management" para un perfil 100% backend) entre 0.43 y 0.48 --
+un placeholder anterior de 0.6 nunca filtraba nada, porque ninguna distancia
+real observada lo superaba (por eso el retrieval devolvía casi siempre los
+3 roles completos para cualquier perfil). Con una muestra de solo 6 perfiles
+esto es un punto de partida, no un número definitivo -- reajustar a medida
+que haya más variedad real de perfiles y roles.
+"""
+
 
 def buscar_roles_afines(perfil_id: str, limite: int = 3) -> list[str]:
     """
@@ -24,7 +42,8 @@ def buscar_roles_afines(perfil_id: str, limite: int = 3) -> list[str]:
     Si el perfil todavía no tiene embedding guardado, se genera acá (idempotente:
     llamadas siguientes ya lo encuentran guardado).
 
-    Returns: lista de `rol_normalizado_id`, los más afines primero.
+    Returns: lista de `rol_normalizado_id`, los más afines primero. Vacía si
+    ninguno supera el piso mínimo de similitud (ver `_UMBRAL_DISTANCIA_ROL`).
     """
     perfil = obtener("perfiles", perfil_id)
     if not perfil:
@@ -37,7 +56,10 @@ def buscar_roles_afines(perfil_id: str, limite: int = 3) -> list[str]:
         log.warning("perfil %s sin embedding disponible; no se puede hacer retrieval nivel 1", perfil_id)
         return []
 
-    roles = buscar_vecinos("roles_normalizados", "embedding", vector, limite=limite)
+    roles = buscar_vecinos(
+        "roles_normalizados", "embedding", vector, limite=limite,
+        umbral_distancia=_UMBRAL_DISTANCIA_ROL,
+    )
     return [r["_document_id"] for r in roles]
 
 

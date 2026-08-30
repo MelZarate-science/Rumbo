@@ -10,7 +10,8 @@ Lo que decide el modelo: si el CV cumple cada requisito (evidencia semántica,
 no solo coincidencia de palabra), el score global y la sugerencia para cada
 requisito no cumplido. Lo que NO decide el modelo (son datos objetivos que ya
 tenemos): `porcentaje_mercado` (viene de `requisitos_frecuencia` del rol) y
-`especifico_de_esta_empresa` (si el requisito se creó recién para este puesto).
+`especifico_de_esta_empresa`, derivado en vivo de ese mismo porcentaje (no de
+un flag guardado -- ver `_especifico_de_esta_empresa` más abajo).
 
 Corre una vez por cada puesto candidato que devolvió el retrieval.
 
@@ -24,9 +25,32 @@ from pydantic import BaseModel
 
 from services import gemini_client
 from services.firestore_client import obtener
-from services.normalizacion import obtener_frecuencias
 
 _PROMPT = (Path(__file__).parent / "prompts" / "auditor_fit_prompt.txt").read_text(encoding="utf-8")
+
+_UMBRAL_MUESTRA_MINIMA = 3
+"""Con menos puestos que esto en el rol, no hay señal de mercado real todavía
+-- todo se marca "particular de esta empresa" en vez de arriesgar un
+"estándar del mercado" que en realidad es "lo único que vimos hasta ahora"."""
+
+_UMBRAL_PORCENTAJE_PARTICULAR = 40
+"""Por debajo de este % de puestos del rol que piden un requisito, se
+considera capricho de esta empresa; por encima, estándar del rol."""
+
+
+def _especifico_de_esta_empresa(rol: dict | None, porcentaje: int) -> bool:
+    """
+    Se deriva en vivo de `porcentaje_mercado`, no de un flag guardado en el
+    puesto (`requisitos_nuevos`, ya eliminado): ese flag se calculaba una
+    sola vez al indexar y nunca se volvía a mirar, así que un requisito que
+    empezaba siendo un capricho de una empresa se quedaba marcado como tal
+    para siempre, aunque después se volviera estándar del mercado (o
+    viceversa, si se editaba el puesto). Derivarlo acá lo mantiene siempre
+    al día.
+    """
+    if not rol or (rol.get("cantidad_puestos") or 0) < _UMBRAL_MUESTRA_MINIMA:
+        return True
+    return porcentaje < _UMBRAL_PORCENTAJE_PARTICULAR
 
 
 class EvaluacionRequisito(BaseModel):
@@ -79,8 +103,8 @@ def calcular_score_y_roadmap(perfil_id: str, puesto_id: str) -> dict:
             requisitos.append(req)
 
     rol_id = puesto.get("rol_normalizado_id")
-    freqs = {f["requisito_id"]: f for f in obtener_frecuencias(rol_id)} if rol_id else {}
-    requisitos_nuevos = set(puesto.get("requisitos_nuevos") or [])
+    rol = obtener("roles_normalizados", rol_id) if rol_id else None
+    freqs = {f["requisito_id"]: f for f in (rol.get("requisitos_frecuencia") or [])} if rol else {}
 
     if not requisitos:
         return {
@@ -96,7 +120,9 @@ def calcular_score_y_roadmap(perfil_id: str, puesto_id: str) -> dict:
                 "id": req["_document_id"],
                 "nombre": req.get("nombre", ""),
                 "porcentaje_mercado": freqs.get(req["_document_id"], {}).get("porcentaje", 0),
-                "especifico_de_esta_empresa": req["_document_id"] in requisitos_nuevos,
+                "especifico_de_esta_empresa": _especifico_de_esta_empresa(
+                    rol, freqs.get(req["_document_id"], {}).get("porcentaje", 0)
+                ),
             }
             for req in requisitos
         ],
@@ -120,12 +146,13 @@ def calcular_score_y_roadmap(perfil_id: str, puesto_id: str) -> dict:
             sugerencia = None
 
         f = freqs.get(req_id, {})
+        porcentaje = f.get("porcentaje", 0)
         roadmap.append({
             "requisito_id": req_id,
             "nombre": nombre,
             "cumplido": cumplido,
-            "porcentaje_mercado": f.get("porcentaje", 0),
-            "especifico_de_esta_empresa": req_id in requisitos_nuevos,
+            "porcentaje_mercado": porcentaje,
+            "especifico_de_esta_empresa": _especifico_de_esta_empresa(rol, porcentaje),
             "sugerencia": sugerencia,
         })
 

@@ -139,9 +139,11 @@ uvicorn main:app --reload --port 8080
 
 El SDK de Firestore detecta `FIRESTORE_EMULATOR_HOST` automáticamente.
 
-**Índice vectorial requerido** (contra Firestore real, no el emulador): sin
-esto, el retrieval Nivel 1 (`find_nearest()`) falla con
-`Missing vector index configuration`. Se crea una sola vez por proyecto:
+**Índices vectoriales requeridos** (contra Firestore real, no el emulador): sin
+esto, `find_nearest()` falla con `Missing vector index configuration`. Se crean
+una sola vez por proyecto -- uno para el retrieval Nivel 1 (perfil → rol) y
+otro para el pre-filtro por embedding que usan los Agentes 1 y 2 al clasificar
+un puesto nuevo (ver `Auditoria-Rumbo-Normalizacion.md`, fuera del repo):
 
 ```bash
 gcloud firestore indexes composite create \
@@ -149,9 +151,15 @@ gcloud firestore indexes composite create \
   --collection-group=roles_normalizados \
   --query-scope=COLLECTION \
   --field-config=field-path=embedding,vector-config='{"dimension":"1536","flat":"{}"}'
+
+gcloud firestore indexes composite create \
+  --project=YOUR-PROJECT-ID \
+  --collection-group=requisitos_normalizados \
+  --query-scope=COLLECTION \
+  --field-config=field-path=embedding,vector-config='{"dimension":"1536","flat":"{}"}'
 ```
 
-Tarda unos minutos en pasar a estado `READY` (`gcloud firestore indexes composite list` para chequear).
+Tarda unos minutos en pasar a estado `READY` (`gcloud firestore indexes composite list` para chequear). Si `gcloud` da problemas de quoting en Windows/PowerShell con el JSON de `vector-config`, se puede crear por API en su lugar con `google.cloud.firestore_admin_v1.FirestoreAdminClient().create_index(...)`.
 
 ### 4. Run tests (no GCP needed)
 

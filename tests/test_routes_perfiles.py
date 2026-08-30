@@ -23,6 +23,14 @@ def test_crear_perfil_email_invalido(client, sample_perfil):
     assert r.json()["codigo"] == "ERROR_VALIDACION"
 
 
+def test_crear_perfil_email_duplicado_falla(client, sample_perfil):
+    r = client.post("/perfiles", json=sample_perfil)
+    assert r.status_code == 201
+    r = client.post("/perfiles", json={**sample_perfil, "nombre": "Otro"})
+    assert r.status_code == 409
+    assert r.json()["codigo"] == "EMAIL_YA_REGISTRADO"
+
+
 def test_crear_perfil_telefono_invalido(client, sample_perfil):
     sample_perfil["telefono"] = "abc"
     r = client.post("/perfiles", json=sample_perfil)

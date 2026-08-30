@@ -2,8 +2,15 @@
 Puebla la base con datos ficticios para probar el motor de matching.
 
 Backlog: tarea 2.1
-Objetivo: al menos 5-6 perfiles variados y 3-4 empresas con 1-2 puestos cada una,
-con saberes complementarios entre sí, para que el matching tenga con qué trabajar.
+Objetivo: 6 perfiles variados y 6 empresas con 9 puestos en total, con dos
+solapamientos deliberados entre empresas distintas (mismo rol real, título y
+redacción distintos) para que `roles_normalizados` tenga roles con más de un
+puesto -- si no, las frecuencias de mercado siempre dan 100% y no hay forma de
+ver la separación "estándar del mercado" vs. "particular de esta empresa".
+También incluye un caso negativo (Product Manager vs. Product Marketing
+Manager) para confirmar que el clasificador NO fusiona roles parecidos en el
+nombre pero distintos en el fondo -- ver `Auditoria-Rumbo-Normalizacion.md`
+(fuera del repo) para el detalle de por qué se armó así.
 
 Uso:
     export GOOGLE_CLOUD_PROJECT=tu-proyecto
@@ -17,7 +24,10 @@ from datetime import UTC, datetime
 from models.empresa import Empresa
 from models.perfil import CvData, ExperienciaItem, FormacionItem, Perfil, ProyectoItem
 from models.puesto import Puesto
+from services.auth import hashear_password
 from services.firestore_client import crear, FirestoreError
+
+PASSWORD_DEMO = "rumbo2026"
 
 
 def _perfil_ana() -> Perfil:
@@ -258,7 +268,23 @@ def _perfil_jorge() -> Perfil:
 
 
 def _empresas_y_puestos():
-    """Devuelve lista de (Empresa, [Puesto, ...])"""
+    """
+    Devuelve lista de (Empresa, [Puesto, ...]).
+
+    Solapamiento deliberado #1 -- rol "Backend Python", 3 empresas, 3 títulos y
+    redacciones distintas (TechNova, DataMind, FinTech Solutions): debería
+    normalizarse a un único `rol_normalizado` con `cantidad_puestos = 3`.
+
+    Solapamiento deliberado #2 -- rol "Platform/Infra", 2 empresas, 2 títulos
+    distintos (TechNova "Platform Engineer", FinTech Solutions "DevOps
+    Engineer"): debería normalizarse a un único rol con `cantidad_puestos = 2`.
+
+    Caso negativo -- "Product Manager" (Nimbus Retail) vs. "Product Marketing
+    Manager" (BrightWave Media): títulos parecidos, roles distintos en el
+    fondo. Deberían quedar como DOS roles separados. Ninguno de los perfiles
+    sembrados matchea bien con estos dos -- están para probar clasificación,
+    no matching.
+    """
     return [
         (
             Empresa(
@@ -304,6 +330,16 @@ def _empresas_y_puestos():
                         "Requisitos: 3+ años ML en prod, MLOps, SQL avanzado, Docker."
                     ),
                 ),
+                Puesto(
+                    empresa_id="",
+                    titulo="Ingeniero/a de Backend Python",
+                    descripcion=(
+                        "Diseñar servicios de datos internos: APIs de acceso a datasets, pipelines de "
+                        "ingesta, integración con el equipo de ML. Stack: Python, Django REST Framework, "
+                        "PostgreSQL, Celery, Docker. Requisitos: 3+ años Python, diseño de APIs REST, "
+                        "testing automatizado, colas de trabajo asincrónicas (Celery/RQ), Docker."
+                    ),
+                ),
             ],
         ),
         (
@@ -330,6 +366,17 @@ def _empresas_y_puestos():
                         "políticas de seguridad, compliance. Terraform, Helm, Prometheus."
                     ),
                 ),
+                Puesto(
+                    empresa_id="",
+                    titulo="Python Developer — Core Services",
+                    descripcion=(
+                        "Servicios core del banco digital: cuentas, pagos, conciliación. "
+                        "Python, FastAPI, PostgreSQL, Docker. Ambiente regulado: testing exhaustivo "
+                        "(unit + contract testing), trazabilidad de cambios, cumplimiento PCI-DSS. "
+                        "Requisitos: 3+ años Python, FastAPI o equivalente, testing automatizado, "
+                        "experiencia con entornos regulados/compliance."
+                    ),
+                ),
             ],
         ),
         (
@@ -350,6 +397,44 @@ def _empresas_y_puestos():
                 ),
             ],
         ),
+        (
+            Empresa(
+                nombre_empresa="Nimbus Retail",
+                contexto="E-commerce B2C, equipos chicos multidisciplinarios, foco en experimentación rápida.",
+                email_registro="talento@nimbusretail.com",
+            ),
+            [
+                Puesto(
+                    empresa_id="",
+                    titulo="Product Manager",
+                    descripcion=(
+                        "Liderar el roadmap de nuestra app de e-commerce B2C. Research de usuarios, "
+                        "priorización de backlog, coordinación con diseño e ingeniería, métricas de "
+                        "producto (activation, retention). Requisitos: 3+ años como PM, escritura de "
+                        "specs/PRDs, priorización basada en datos, Jira/Linear."
+                    ),
+                ),
+            ],
+        ),
+        (
+            Empresa(
+                nombre_empresa="BrightWave Media",
+                contexto="Suite de productos B2B, equipo de marketing y ventas integrado, ciclos de GTM cortos.",
+                email_registro="jobs@brightwavemedia.com",
+            ),
+            [
+                Puesto(
+                    empresa_id="",
+                    titulo="Product Marketing Manager",
+                    descripcion=(
+                        "Liderar el posicionamiento y go-to-market de nuestra suite de productos B2B. "
+                        "Mensajería de marca, campañas de lanzamiento, research competitivo, "
+                        "habilitación al equipo de ventas. Requisitos: 3+ años en product marketing, "
+                        "copywriting, campañas B2B, coordinación con ventas y contenido."
+                    ),
+                ),
+            ],
+        ),
     ]
 
 
@@ -363,6 +448,7 @@ def main():
     ]
     perfil_ids = []
     for p in perfiles:
+        p.password_hash = hashear_password(PASSWORD_DEMO)
         try:
             pid = crear("perfiles", p.model_dump(mode="python", exclude_none=True))
             perfil_ids.append(pid)
@@ -373,6 +459,7 @@ def main():
 
     # 2) Crear empresas y puestos
     for emp, puestos in _empresas_y_puestos():
+        emp.password_hash = hashear_password(PASSWORD_DEMO)
         try:
             emp_id = crear("empresas", emp.model_dump(mode="python", exclude_none=True))
             print(f"✓ Empresa creada: {emp.nombre_empresa} (id={emp_id})")
@@ -403,7 +490,18 @@ def main():
         except Exception as e:
             print(f"✗ Error en matching perfil {pid}: {e}", file=sys.stderr)
 
-    print("\n=== Seed completado ===")
+    # 4) Verificación visual: cómo quedaron los roles normalizados
+    print("\n--- Roles normalizados resultantes ---")
+    from services.firestore_client import listar
+    for rol in listar("roles_normalizados"):
+        print(f"  · {rol.get('nombre_normalizado')} — cantidad_puestos={rol.get('cantidad_puestos')} (id={rol['_document_id']})")
+    print(
+        "\nEsperado: 'Backend Python' (o similar) con cantidad_puestos=3, "
+        "'Platform/Infra' (o similar) con cantidad_puestos=2, y 'Product Manager' / "
+        "'Product Marketing Manager' como DOS roles separados con cantidad_puestos=1 cada uno."
+    )
+
+    print(f"\n=== Seed completado — contraseña de todas las cuentas de prueba: {PASSWORD_DEMO} ===")
     return 0
 
 

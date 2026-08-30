@@ -35,8 +35,10 @@ def fake_generar_json(*, system_instruction, contents, response_schema, model=No
 
     if nombre_schema == "ClasificacionRol":
         return _fake_clasificacion(payload, response_schema)
-    if nombre_schema == "ExtraccionRequisitos":
-        return _fake_extraccion(payload, response_schema)
+    if nombre_schema == "ExtraccionPura":
+        return _fake_extraccion_pura(payload, response_schema)
+    if nombre_schema == "ReconciliacionRequisitos":
+        return _fake_reconciliacion(payload, response_schema)
     if nombre_schema == "AuditoriaFit":
         return _fake_auditoria(payload, response_schema)
     raise NotImplementedError(f"FakeGemini no soporta el esquema {nombre_schema}")
@@ -68,31 +70,49 @@ def _fake_clasificacion(payload, schema):
     )
 
 
-def _fake_extraccion(payload, schema):
+def _fake_extraccion_pura(payload, schema):
+    """
+    Paso 1 (extracción, sin catálogo): cada token "relevante" del puesto es
+    un candidato. La reconciliación contra el catálogo pasa en el paso 2
+    (`_fake_reconciliacion`) o, antes de eso, en el piso 0/1 determinístico
+    del propio `extractor_requisitos.py` -- acá no hay nada que reconciliar.
+    """
     puesto = payload["puesto"]
-    texto_puesto = f"{puesto['titulo']} {puesto['descripcion']}"
-    tokens_puesto = _tokens(texto_puesto)
+    tokens_puesto = _tokens(f"{puesto['titulo']} {puesto['descripcion']}")
 
-    from agents.extractor_requisitos import RequisitoDetectado
+    from agents.extractor_requisitos import RequisitoExtraido
 
-    detectados = []
-    tokens_cubiertos: set[str] = set()
-
-    for req in payload["catalogo_requisitos"]:
-        tokens_req = _tokens(req["nombre"])
-        if tokens_req and tokens_req.issubset(tokens_puesto):
-            detectados.append(RequisitoDetectado(
-                requisito_existente_id=req["id"], nombre=req["nombre"], tipo=req.get("tipo"),
-            ))
-            tokens_cubiertos |= tokens_req
-
-    restantes = sorted(tokens_puesto - tokens_cubiertos)
-    for tok in restantes[:8]:
-        detectados.append(RequisitoDetectado(
-            requisito_existente_id=None, nombre=tok.capitalize(), tipo="herramienta",
-        ))
-
+    detectados = [
+        RequisitoExtraido(nombre=tok.capitalize(), tipo="herramienta")
+        for tok in sorted(tokens_puesto)
+    ]
     return schema(requisitos=detectados)
+
+
+def _fake_reconciliacion(payload, schema):
+    """
+    Paso 2 (reconciliación batcheada): para cada candidato ambiguo, mira si
+    su nombre solapa (en cualquier dirección) con alguna entrada de su lista
+    corta preseleccionada por embedding -- mismo criterio de solapamiento de
+    tokens que el resto de los fakes, no juicio semántico real.
+    """
+    from agents.extractor_requisitos import ReconciliacionRequisito
+
+    resultados = []
+    for item in payload["candidatos"]:
+        tokens_candidato = _tokens(item["nombre_candidato"])
+        mejor_id = None
+        for entrada in item["candidatos_catalogo"]:
+            tokens_entrada = _tokens(entrada["nombre"])
+            if not tokens_candidato or not tokens_entrada:
+                continue
+            if tokens_entrada.issubset(tokens_candidato) or tokens_candidato.issubset(tokens_entrada):
+                mejor_id = entrada["id"]
+                break
+        resultados.append(ReconciliacionRequisito(
+            nombre_candidato=item["nombre_candidato"], requisito_existente_id=mejor_id,
+        ))
+    return schema(resultados=resultados)
 
 
 def _fake_auditoria(payload, schema):
