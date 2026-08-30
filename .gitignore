@@ -30,3 +30,5 @@ htmlcov/
 # Build
 dist/
 build/
+frontend/node_modules/
+backend/static/

@@ -1,4 +1,5 @@
 """Compatibility entrypoint that re-exports the backend app."""
+
 import os
 
 from backend.main import app
