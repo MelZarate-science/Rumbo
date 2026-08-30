@@ -135,11 +135,11 @@ Este es el corazón ético del producto, y la decisión de diseño más distinti
 
 | Componente | Elección |
 |---|---|
-| Modelo | Gemini 2.5 Flash para los 3 agentes (gemini-3.5-flash tiene cuota gratuita de solo 20 req/día por ser tan nuevo; 2.5 Flash tiene cientos/día en capa gratuita) |
+| Modelo | Gemini 3.5 Flash para los 3 agentes, vía Vertex AI (requisito obligatorio de la competencia: Gemini 3.5 o superior). Solo disponible en este proyecto a través del endpoint `global` de Vertex -- `us-central1` todavía no lo sirve, devuelve 404 |
 | Framework de agentes | Google ADK |
 | Base de datos | Firestore, con soporte vectorial nativo (`find_nearest()`) |
 | Cómputo | Cloud Run |
-| Disparo asíncrono | Pub/Sub |
+| Disparo del pipeline | Síncrono, dentro del mismo request HTTP (`PUT /perfiles/{id}/cv`). Pub/Sub queda diferido (backlog 2.11), todavía no implementado |
 | Lenguaje | Python |
 
 **Evaluado y descartado para el MVP:** Cloud Talent Solution (potente, pero es infraestructura de producción y agrega setup que no aporta al scope de 8 días) y Spanner Graph (el grafo bipartito roles↔requisitos se resuelve con referencias simples en Firestore a este volumen). Ambos quedan como camino de evolución natural si el producto escala — vale mencionarlos en el pitch como decisiones conscientes, no como desconocimiento.
