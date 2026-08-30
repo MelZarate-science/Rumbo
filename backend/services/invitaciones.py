@@ -17,9 +17,9 @@ Backlog: tareas 4.2 a 4.5
 
 from datetime import UTC, datetime
 
-from models.match import EstadoMatch
-from models.perfil import Perfil
-from services.firestore_client import actualizar, obtener
+from backend.models.match import EstadoMatch
+from backend.models.perfil import Perfil
+from backend.services.firestore_client import actualizar, obtener
 
 
 class TransicionInvalidaError(ValueError):

@@ -11,8 +11,8 @@ from typing import Literal
 from fastapi import APIRouter, Header, HTTPException, status
 from pydantic import BaseModel
 
-from services.auth import AuthError, crear_token, verificar_password, verificar_token
-from services.firestore_client import listar
+from backend.services.auth import AuthError, crear_token, verificar_password, verificar_token
+from backend.services.firestore_client import listar
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 

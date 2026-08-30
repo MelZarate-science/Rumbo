@@ -20,9 +20,9 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from services import gemini_client
-from services.embeddings import generar_embedding
-from services.firestore_client import actualizar, buscar_vecinos, crear, obtener
+from backend.services import gemini_client
+from backend.services.embeddings import generar_embedding
+from backend.services.firestore_client import actualizar, buscar_vecinos, crear, obtener
 
 _PROMPT = (Path(__file__).parent / "prompts" / "clasificador_roles_prompt.txt").read_text(encoding="utf-8")
 
@@ -92,7 +92,7 @@ def clasificar_puesto(puesto_id: str) -> str:
             "cantidad_puestos": 0,
             "updated_at": datetime.now(UTC),
         })
-        from services.embeddings import generar_embedding_rol
+        from backend.services.embeddings import generar_embedding_rol
         generar_embedding_rol(rol_id)
 
     actualizar("puestos", puesto_id, {"rol_normalizado_id": rol_id})

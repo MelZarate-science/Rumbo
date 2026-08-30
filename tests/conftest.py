@@ -10,12 +10,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 # Monkey-patch del cliente Firestore ANTES de importar main
-import services.firestore_client as fc
+import backend.services.firestore_client as fc
 from tests.fakes import FAKE_DB, FakeFirestore
 
 # Monkey-patch de Gemini: los tests nunca llaman a la API real (sin red, sin
 # credenciales). Ver `tests/fakes_gemini.py` para el criterio del doble de prueba.
-import services.gemini_client as gc
+import backend.services.gemini_client as gc
 from tests.fakes_gemini import fake_generar_embedding_vector, fake_generar_json
 
 
@@ -36,7 +36,7 @@ gc.generar_embedding_vector = fake_generar_embedding_vector
 # embedding real), así que aplicar ese mismo número acá filtraría de más o de
 # menos sin que signifique nada. Se desactiva para tests, mismo criterio que
 # reemplazar Gemini/Firestore por dobles de prueba.
-import services.retrieval as retrieval_module
+import backend.services.retrieval as retrieval_module
 retrieval_module._UMBRAL_DISTANCIA_ROL = None
 
 # Ahora importamos la app (que importa routes, que importan firestore_client)

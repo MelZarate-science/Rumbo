@@ -23,8 +23,8 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from services import gemini_client
-from services.firestore_client import obtener
+from backend.services import gemini_client
+from backend.services.firestore_client import obtener
 
 _PROMPT = (Path(__file__).parent / "prompts" / "auditor_fit_prompt.txt").read_text(encoding="utf-8")
 

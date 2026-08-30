@@ -9,10 +9,10 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from models.puesto import Puesto, PuestoUpdate
-from pipeline.matching_pipeline import ejecutar_pipeline_indexado
-from routes.auth import usuario_actual
-from services.firestore_client import obtener, actualizar
+from backend.models.puesto import Puesto, PuestoUpdate
+from backend.pipeline.matching_pipeline import ejecutar_pipeline_indexado
+from backend.routes.auth import usuario_actual
+from backend.services.firestore_client import obtener, actualizar
 
 router = APIRouter(prefix="/puestos", tags=["puestos"])
 

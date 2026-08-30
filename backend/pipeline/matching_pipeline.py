@@ -13,9 +13,9 @@ Backlog: tareas 2.7 a 2.11
 from agents.auditor_fit import calcular_score_y_roadmap
 from agents.clasificador_roles import clasificar_puesto
 from agents.extractor_requisitos import extraer_requisitos
-from services.embeddings import generar_embedding_perfil
-from services.firestore_client import crear, obtener
-from services.retrieval import buscar_puestos_de_roles, buscar_roles_afines
+from backend.services.embeddings import generar_embedding_perfil
+from backend.services.firestore_client import crear, obtener
+from backend.services.retrieval import buscar_puestos_de_roles, buscar_roles_afines
 
 
 def ejecutar_pipeline_matching(perfil_id: str) -> list[str]:
@@ -34,7 +34,7 @@ def ejecutar_pipeline_matching(perfil_id: str) -> list[str]:
 
     # Verificar matches existentes para no duplicar
     matches_existentes = set()
-    from services.firestore_client import listar
+    from backend.services.firestore_client import listar
     for m in listar("matches", {"perfil_id": perfil_id}):
         if m.get("puesto_id"):
             matches_existentes.add(m["puesto_id"])
@@ -71,7 +71,7 @@ def ejecutar_pipeline_indexado(puesto_id: str) -> None:
 
     Backlog: tareas 2.3, 2.5, 2.6
     """
-    from services.firestore_client import obtener
+    from backend.services.firestore_client import obtener
     puesto = obtener("puestos", puesto_id)
     if puesto is None:
         raise ValueError(f"puesto {puesto_id} no encontrado")
@@ -84,5 +84,5 @@ def ejecutar_pipeline_indexado(puesto_id: str) -> None:
 
     # Actualizar frecuencias del rol de forma idempotente
     if rol_id:
-        from services.normalizacion import actualizar_frecuencias
+        from backend.services.normalizacion import actualizar_frecuencias
         actualizar_frecuencias(rol_id, puesto_id, req_ids, requisitos_viejos)

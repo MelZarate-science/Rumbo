@@ -29,9 +29,9 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from services import gemini_client
-from services.embeddings import generar_embedding, generar_embedding_requisito
-from services.firestore_client import actualizar, buscar_vecinos, crear, listar, obtener
+from backend.services import gemini_client
+from backend.services.embeddings import generar_embedding, generar_embedding_requisito
+from backend.services.firestore_client import actualizar, buscar_vecinos, crear, listar, obtener
 
 _PROMPT_EXTRACCION = (Path(__file__).parent / "prompts" / "extractor_requisitos_paso1_prompt.txt").read_text(encoding="utf-8")
 _PROMPT_RECONCILIACION = (Path(__file__).parent / "prompts" / "extractor_requisitos_paso2_prompt.txt").read_text(encoding="utf-8")
