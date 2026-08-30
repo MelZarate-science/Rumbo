@@ -63,3 +63,24 @@ def generar_embedding_rol(rol_normalizado_id: str) -> list[float]:
     vector = gemini_client.generar_embedding_vector(texto)
     guardar_embedding("roles_normalizados", rol_normalizado_id, "embedding", vector)
     return vector
+
+
+def generar_embedding_requisito(requisito_id: str) -> list[float]:
+    """
+    Genera y guarda el embedding de `nombre` del requisito. Se calcula una
+    sola vez, cuando el requisito se crea -- lo usa la cascada de
+    reconciliación del Agente 2 (`agents/extractor_requisitos.py`) para
+    preseleccionar candidatos antes de recurrir a Gemini.
+    """
+    requisito = obtener("requisitos_normalizados", requisito_id)
+    if requisito is None:
+        raise ValueError(f"requisito {requisito_id} no encontrado")
+
+    texto = requisito.get("nombre", "")
+    if not texto:
+        log.warning("requisito %s sin nombre; no se genera embedding", requisito_id)
+        return []
+
+    vector = gemini_client.generar_embedding_vector(texto)
+    guardar_embedding("requisitos_normalizados", requisito_id, "embedding", vector)
+    return vector

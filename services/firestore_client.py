@@ -126,10 +126,21 @@ def guardar_embedding(coleccion: str, doc_id: str, campo: str, valores: list[flo
         raise FirestoreError(f"guardar_embedding {coleccion}/{doc_id}.{campo}: {exc}") from exc
 
 
-def buscar_vecinos(coleccion: str, campo_vector: str, vector: list[float], limite: int = 3) -> list[dict]:
+def buscar_vecinos(
+    coleccion: str,
+    campo_vector: str,
+    vector: list[float],
+    limite: int = 3,
+    umbral_distancia: float | None = None,
+) -> list[dict]:
     """
     NIVEL 1 del retrieval: `find_nearest()` de Firestore contra `campo_vector`.
     Devuelve los `limite` documentos más cercanos por similitud coseno.
+
+    `umbral_distancia`: distancia coseno máxima (0 = idénticos, 2 = opuestos).
+    Sin esto, `find_nearest()` siempre devuelve `limite` resultados aunque
+    ninguno sea remotamente parecido -- pasarlo evita, por ejemplo, que un
+    perfil sin ninguna habilidad afín reciba matches de relleno.
 
     Cada dict devuelto incluye `_document_id`.
     """
@@ -144,9 +155,43 @@ def buscar_vecinos(coleccion: str, campo_vector: str, vector: list[float], limit
                 query_vector=vector,
                 limit=limite,
                 distance_measure=DistanceMeasure.COSINE,
+                distance_threshold=umbral_distancia,
             )
             .stream()
         )
         return [{**doc.to_dict(), "_document_id": doc.id} for doc in docs]
     except Exception as exc:  # noqa: BLE001
         raise FirestoreError(f"buscar_vecinos {coleccion}.{campo_vector}: {exc}") from exc
+
+
+def actualizar_transaccional(coleccion: str, doc_id: str, fn) -> None:
+    """
+    Ejecuta `fn(datos_actuales: dict) -> dict | None` dentro de una
+    transacción de Firestore y escribe el resultado (merge).
+
+    `fn` recibe el documento actual (con `_document_id` incluido) y devuelve
+    los campos a actualizar, o `None`/`{}` para no escribir nada. El
+    lectura+escritura queda atómica: si dos llamadas concurrentes tocan el
+    mismo documento, Firestore reintenta una de las dos en vez de dejar que
+    se pisen los cambios en silencio (ver `services/normalizacion.py`, que
+    es el motivo por el que existe esta función).
+    """
+    from google.cloud import firestore
+
+    client = _client()
+    doc_ref = client.collection(coleccion).document(doc_id)
+
+    @firestore.transactional
+    def _run(transaction):
+        snapshot = doc_ref.get(transaction=transaction)
+        if not snapshot.exists:
+            return
+        datos_actuales = {**snapshot.to_dict(), "_document_id": snapshot.id}
+        cambios = fn(datos_actuales)
+        if cambios:
+            transaction.update(doc_ref, cambios)
+
+    try:
+        _run(client.transaction())
+    except Exception as exc:  # noqa: BLE001
+        raise FirestoreError(f"actualizar_transaccional {coleccion}/{doc_id}: {exc}") from exc

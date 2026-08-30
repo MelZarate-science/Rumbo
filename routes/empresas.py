@@ -42,6 +42,9 @@ def _requiere_dueno(empresa_id: str, sesion: dict) -> None:
 @router.post("", status_code=status.HTTP_201_CREATED)
 def crear_empresa(empresa: EmpresaCreate):
     """Crea una empresa y devuelve un token de sesión (login automático al registrarse)."""
+    if listar("empresas", {"email_registro": empresa.email_registro}):
+        _error(status.HTTP_409_CONFLICT, "Ya existe una cuenta con ese email", "EMAIL_YA_REGISTRADO")
+
     datos = empresa.model_dump(mode="python", exclude_none=True)
     datos["password_hash"] = hashear_password(datos.pop("password"))
     datos["created_at"] = datetime.now(UTC)

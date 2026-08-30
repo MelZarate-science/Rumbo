@@ -29,6 +29,16 @@ fc._CLIENT = FAKE_DB  # type: ignore
 gc.generar_json = fake_generar_json
 gc.generar_embedding_vector = fake_generar_embedding_vector
 
+# El umbral de similitud de `buscar_roles_afines` está calibrado contra la
+# escala de distancia de embeddings REALES (ver services/retrieval.py) -- el
+# fake de embeddings de arriba es un hash de bag-of-words con una escala de
+# distancia totalmente distinta (todo o nada, no la variación continua de un
+# embedding real), así que aplicar ese mismo número acá filtraría de más o de
+# menos sin que signifique nada. Se desactiva para tests, mismo criterio que
+# reemplazar Gemini/Firestore por dobles de prueba.
+import services.retrieval as retrieval_module
+retrieval_module._UMBRAL_DISTANCIA_ROL = None
+
 # Ahora importamos la app (que importa routes, que importan firestore_client)
 from main import app
 

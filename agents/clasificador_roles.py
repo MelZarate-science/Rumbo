@@ -6,6 +6,11 @@ Recibe un puesto recién cargado y decide, con razonamiento semántico real
 que crear uno nuevo. Ver `agents/prompts/clasificador_roles_prompt.txt` para
 el criterio completo.
 
+Antes de llegar a Gemini, se preselecciona un puñado de candidatos por
+embedding (`find_nearest()`), en vez de mandarle el catálogo entero -- así el
+costo/latencia no crece con la cantidad de roles ya normalizados. Ver
+`Auditoria-Rumbo-Normalizacion.md` (fuera del repo) para el porqué completo.
+
 Backlog: tarea 2.3
 """
 
@@ -16,9 +21,16 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from services import gemini_client
-from services.firestore_client import actualizar, crear, listar, obtener
+from services.embeddings import generar_embedding
+from services.firestore_client import actualizar, buscar_vecinos, crear, obtener
 
 _PROMPT = (Path(__file__).parent / "prompts" / "clasificador_roles_prompt.txt").read_text(encoding="utf-8")
+
+_LIMITE_CANDIDATOS = 8
+"""Cuántos roles pre-filtrados por embedding se le muestran a Gemini. Generoso
+a propósito -- si el pre-filtro deja afuera al verdadero match, Gemini crea un
+rol duplicado sin darse cuenta de que existía uno mejor. Sin umbral de
+distancia todavía (ver nota en `services/retrieval.py` sobre calibración)."""
 
 
 class ClasificacionRol(BaseModel):
@@ -42,7 +54,9 @@ def clasificar_puesto(puesto_id: str) -> str:
     if puesto is None:
         raise ValueError(f"puesto {puesto_id} no encontrado")
 
-    roles = listar("roles_normalizados")
+    texto_puesto = f"{puesto.get('titulo', '')} {puesto.get('descripcion', '')}".strip()
+    vector_puesto = generar_embedding(texto_puesto)
+    roles = buscar_vecinos("roles_normalizados", "embedding", vector_puesto, limite=_LIMITE_CANDIDATOS) if vector_puesto else []
     ids_existentes = {r["_document_id"] for r in roles}
 
     contents = json.dumps({
@@ -74,6 +88,7 @@ def clasificar_puesto(puesto_id: str) -> str:
             "descripcion_consolidada": resultado.descripcion_consolidada,
             "requisitos_frecuencia": [],
             "requisitos_ids": [],
+            "puestos_ids": [],
             "cantidad_puestos": 0,
             "updated_at": datetime.now(UTC),
         })

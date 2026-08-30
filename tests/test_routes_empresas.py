@@ -15,6 +15,14 @@ def test_crear_empresa_ok(client, sample_empresa):
     assert data["nombre_empresa"] == "TestCorp"
 
 
+def test_crear_empresa_email_duplicado_falla(client, sample_empresa):
+    r = client.post("/empresas", json=sample_empresa)
+    assert r.status_code == 201
+    r = client.post("/empresas", json={**sample_empresa, "nombre_empresa": "Otra"})
+    assert r.status_code == 409
+    assert r.json()["codigo"] == "EMAIL_YA_REGISTRADO"
+
+
 def test_obtener_empresa_ok(client, sample_empresa):
     r = client.post("/empresas", json=sample_empresa)
     eid = r.json()["empresa_id"]

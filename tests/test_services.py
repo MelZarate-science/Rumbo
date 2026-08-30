@@ -196,20 +196,27 @@ class TestAuditorFit:
         assert tf_items[0]["cumplido"] is False
         assert tf_items[0]["sugerencia"] is not None
 
-    def test_roadmap_especifico_empresa_true_si_no_en_frecuencias(self):
-        # Un requisito ya catalogado (Python) no es "específico de esta
-        # empresa"; uno acuñado recién para este puesto (QuasarFramework) sí.
-        from services.firestore_client import crear as _crear
-        _crear("requisitos_normalizados", {"nombre": "Python", "tipo": "herramienta"})
-
+    def test_roadmap_especifico_empresa_bajo_frecuencia_de_mercado(self):
+        """
+        `especifico_de_esta_empresa` ya no es un flag que se congela al
+        indexar (bug real: un requisito que empezaba como capricho de una
+        empresa se quedaba marcado así para siempre, aunque después se
+        volviera estándar del mercado) -- se deriva en vivo de
+        `porcentaje_mercado`. Con 3 puestos del mismo rol, un requisito que
+        piden los 3 (100%) es estándar; uno que pide solo 1 (33%) es
+        particular de esa empresa.
+        """
         eid = _crear_empresa_test()
         pid = _crear_perfil_test()
+
+        _crear_puesto_test(eid, "Backend Python", "Python")
+        _crear_puesto_test(eid, "Backend Python", "Python")
         pid_puesto = _crear_puesto_test(eid, "Backend Python", "Python QuasarFramework")
+
         from pipeline.matching_pipeline import ejecutar_pipeline_matching
         matches = ejecutar_pipeline_matching(pid)
         assert matches
-        mid = matches[0]
-        match = obtener("matches", mid)
+        match = next(m for m in (obtener("matches", mid) for mid in matches) if m["puesto_id"] == pid_puesto)
         roadmap = {r["nombre"]: r for r in match["roadmap"]}
 
         assert roadmap["Python"]["especifico_de_esta_empresa"] is False
@@ -267,3 +274,29 @@ class TestFrecuencias:
         assert por_nombre["Fastapi"]["porcentaje"] == 50
         assert por_nombre["Django"]["cantidad"] == 1
         assert por_nombre["Django"]["porcentaje"] == 50
+
+    def test_reindexar_mismo_puesto_no_cambia_cantidad_puestos(self):
+        """
+        Bug real: `cantidad_puestos` se inferia de si la cantidad de
+        requisitos subió o bajó al reindexar, no de cuántos puestos
+        distintos aportaron al rol -- reindexar el MISMO puesto pidiendo
+        MENOS requisitos que antes restaba 1, como si un puesto se hubiera
+        ido del rol. Ahora se cuenta por `puesto_id` real (`puestos_ids` del
+        rol), así que reindexar el mismo puesto no debe mover el contador,
+        sin importar si esta vez pide más o menos requisitos.
+        """
+        eid = _crear_empresa_test()
+        pid_puesto = _crear_puesto_test(eid, "Backend Python", "Python FastAPI Docker")
+
+        rol_id = obtener("puestos", pid_puesto)["rol_normalizado_id"]
+        assert obtener("roles_normalizados", rol_id)["cantidad_puestos"] == 1
+
+        # Reindexar el mismo puesto pidiendo MENOS requisitos que antes.
+        from services.firestore_client import actualizar as _actualizar
+        _actualizar("puestos", pid_puesto, {"titulo": "Backend Python", "descripcion": "Python"})
+        from pipeline.matching_pipeline import ejecutar_pipeline_indexado
+        ejecutar_pipeline_indexado(pid_puesto)
+
+        rol = obtener("roles_normalizados", rol_id)
+        assert obtener("puestos", pid_puesto)["rol_normalizado_id"] == rol_id
+        assert rol["cantidad_puestos"] == 1

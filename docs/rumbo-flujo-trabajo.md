@@ -22,7 +22,8 @@ rumbo/
 │   ├── auditor_fit.py           # Agente 3 — score + roadmap cuantitativo
 │   └── prompts/                 # system prompts de cada agente, en archivos separados
 │       ├── clasificador_roles_prompt.txt
-│       ├── extractor_requisitos_prompt.txt
+│       ├── extractor_requisitos_paso1_prompt.txt  # extracción, sin catálogo
+│       ├── extractor_requisitos_paso2_prompt.txt  # reconciliación batcheada de lo ambiguo
 │       └── auditor_fit_prompt.txt
 │
 ├── pipeline/

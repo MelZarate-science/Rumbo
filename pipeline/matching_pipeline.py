@@ -80,14 +80,9 @@ def ejecutar_pipeline_indexado(puesto_id: str) -> None:
     requisitos_viejos = puesto.get("requisitos_extraidos") or []
 
     rol_id = clasificar_puesto(puesto_id)
-    req_ids, nuevos = extraer_requisitos(puesto_id)
+    req_ids, _nuevos = extraer_requisitos(puesto_id)
 
     # Actualizar frecuencias del rol de forma idempotente
     if rol_id:
         from services.normalizacion import actualizar_frecuencias
-        actualizar_frecuencias(rol_id, req_ids, requisitos_viejos)
-
-    # Guardar cuáles requisitos son nuevos para que el auditor los marque como específicos
-    if nuevos:
-        from services.firestore_client import actualizar
-        actualizar("puestos", puesto_id, {"requisitos_nuevos": list(nuevos)})
+        actualizar_frecuencias(rol_id, puesto_id, req_ids, requisitos_viejos)

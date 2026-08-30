@@ -43,6 +43,9 @@ def _requiere_dueno(perfil_id: str, sesion: dict) -> None:
 @router.post("", status_code=status.HTTP_201_CREATED)
 def crear_perfil(perfil: PerfilCreate):
     """Crea un perfil y devuelve un token de sesión (login automático al registrarse)."""
+    if listar("perfiles", {"email": perfil.email}):
+        _error(status.HTTP_409_CONFLICT, "Ya existe una cuenta con ese email", "EMAIL_YA_REGISTRADO")
+
     datos = perfil.model_dump(mode="python", exclude_none=True)
     datos["password_hash"] = hashear_password(datos.pop("password"))
     datos["created_at"] = datetime.now(UTC)
